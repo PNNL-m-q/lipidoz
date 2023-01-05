@@ -8,8 +8,8 @@ Binary Executables
 ------------------------------
 Binary executables have been built for MacOS and Windows 10: 
 
-* MacOS -- `LipidOz.exe <https://github.com/PNNL-m-q/lipidoz/blob/main/LipidOz.app>`_
-* Windows -- `LipidOz.exe <https://github.com/PNNL-m-q/lipidoz/blob/main/LipidOz.exe>`_
+* MacOS -- `LipidOz.exe <https://github.com/PNNL-m-q/lipidoz/releases/download/v0.9.4-beta/LipidOz.app.zip>`_
+* Windows -- `LipidOz.exe <https://github.com/PNNL-m-q/lipidoz/releases/download/v0.9.4-beta/LipidOz.exe>`_
 
 These binary executables (built using `pyinstaller <https://pyinstaller.readthedocs.io/en/stable/index.html>`_) are self-contained and come bundled with all package requirements, including a Python interpreter. 
 
