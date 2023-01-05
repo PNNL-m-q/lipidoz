@@ -1,0 +1,3 @@
+lipidoz
+numpydoc
+nbsphinx
