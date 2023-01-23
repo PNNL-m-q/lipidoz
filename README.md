@@ -12,3 +12,7 @@ Python utility for determination of lipid double bond position location from OzI
 
 Documentation is available at https://lipidoz.readthedocs.io/
 
+<hr>
+
+Beta Release (with GUI executables) available at: https://github.com/PNNL-m-q/lipidoz/releases/tag/v0.9.4-beta
+
