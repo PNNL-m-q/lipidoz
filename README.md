@@ -17,3 +17,6 @@ Documentation is available at https://lipidoz.readthedocs.io/
 
 Beta Release (with GUI executables) available at: https://github.com/PNNL-m-q/lipidoz/releases/tag/v1.0.0
 
+<hr>
+
+Demonstration of GUI application with data for Ultimate SPLASH lipid standards available here: https://zenodo.org/record/7636522

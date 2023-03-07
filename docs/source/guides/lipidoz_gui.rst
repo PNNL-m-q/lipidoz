@@ -4,6 +4,12 @@ Graphical User Interface
 The **LipidOz** graphical utility can be installed either as standalone binary executables, or as source code. 
 
 
+Demonstration Data
+------------------------------
+GUI Demonstration with example data from Ultimate SPLASH lipid standards available here:
+https://zenodo.org/record/7636522
+
+
 Binary Executables
 ------------------------------
 Binary executables have been built for MacOS and Windows 10: 
