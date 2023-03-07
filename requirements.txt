@@ -4,7 +4,7 @@ numpy
 scipy
 xlsxwriter
 pandas
-sklearn
+scikit-learn
 scikit_image
 torch
 torchvision
