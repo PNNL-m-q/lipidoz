@@ -772,3 +772,161 @@ def score_db_pos_isotope_dist_polyunsat_infusion(oz_data, precursor_formula, fa_
     #                    be some pruning of these formulas to avoid double counting of the AC/CA species.
     return results
 
+
+def score_db_pos_isotope_dist_targeted(oz_data, precursor_formula, db_idxs, db_posns, precursor_rt, rt_tol, 
+                                       rt_peak_win, mz_tol, rt_fit_method='gauss', ms1_fit_method='localmax', 
+                                       check_saturation=True, saturation_threshold=1e5, remove_d=None, 
+                                       debug_flag=None, debug_cb=None, info_cb=None):
+    """
+    performs isotope distribution scoring for targeted double bond positions
+
+    Parameters
+    ----------
+    oz_data : ``mzapy.MZA``
+        mza data interface instance for OzID data
+    precursor_formula : ``dict(str:int)``
+        chemical formula of the precursor ion
+    db_idxs : ``list(int)``
+        list of targeted double bond indices
+    db_posns : ``list(int)``
+        list of targeted double bond positions
+    precursor_rt : ``float``
+        precursor retention time
+    rt_tol : ``float``
+        retention time tolerance
+    rt_peak_win : ``float``
+        size of RT window to extract for peak fitting
+    mz_tol : ``float``
+        m/z tolerance for extracting XICs
+    rt_fit_method : ``str``, default='gauss'
+        specify method to use for fitting the RT peak ('gauss' works best in testing)
+    ms1_fit_method : ``str``, default='localmax'
+        specify method to use for fitting MS1 spectrum ('localmax' works best in testing)
+    check_saturation : ``bool``, default=True
+        whether to check for signal saturation and use leading edge strategy if necessary
+    saturation_threshold : ``float``, default=1e5
+        specify a threshold intensity for determining peak saturation
+    remove_d : ``int``, optional
+        adjust molecular formulas to get rid of D labels on fatty acid tail that are part of the neutral loss
+        (specific to SPLASH lipids)
+    debug_flag : ``str``, optional
+        specifies how to dispatch the message and/or plot, None to do nothing
+    debug_cb : ``func``, optional
+        callback function that takes the debugging message as an argument, can be None if
+        debug_flag is not set to 'textcb'
+    info_cb : ``function``, optional
+        optional callback function that gets called at several intermediate steps and gives information about data
+        processing details. Callback function takes a single argument which is a ``str`` info message
+
+    Returns
+    -------
+    result : dict(...)
+        dictionary containing analysis results
+    """
+    # use non GUI backend if debug is set to False (required for lipidoz_gui)
+    if debug_flag != 'full':
+        mpuse('Agg') 
+    results = {}
+    _debug_handler(debug_flag, debug_cb, msg='----------precursor----------')
+    # predict precursor isotope distribution
+    pre_target_mz, pre_target_abun = predict_m_m1_m2(precursor_formula)
+    # get XIC for  target_rt +/- 0.5 using precursor m/z +/- mz_tol
+    mz_min, mz_max = pre_target_mz[0] - mz_tol, pre_target_mz[0] + mz_tol
+    rtb = (precursor_rt - rt_peak_win, precursor_rt + rt_peak_win)
+    pre_xic_rt, pre_xic_int = oz_data.collect_xic_arrays_by_mz(mz_min, mz_max, rt_bounds=rtb)
+    # get the fitted peak info from the xic
+    peak_info, pre_xic_fit_img = _fit_xic_rt(pre_xic_rt, pre_xic_int, pre_target_mz[0], mz_tol, 
+                                             precursor_rt, rt_tol, rt_fit_method, 1., \
+                                             debug_flag, debug_cb)
+    peak_rt, peak_ht, peak_wt = peak_info
+    if peak_rt is None:
+        _debug_handler(debug_flag, debug_cb, msg='unable to find RT peak for precursor')
+        if info_cb is not None and debug_flag is None:  # avoid duplication of messages
+            info_cb('INFO: unable to find RT peak for precursor')
+        return None
+    # determine whether peak is saturated, change RT bounds used in scoring if so
+    # TODO (Dylan Ross) make this check more sophisticated, detect peak saturation from peak shape or something
+    is_saturated = peak_ht > saturation_threshold
+    if check_saturation and is_saturated:
+        msg = 'peak saturation detected, only using scans from leading edge of RT peak for isotope scoring'
+        _debug_handler(debug_flag, debug_cb, msg=msg)
+        # find the RT at the leading edge of the peak (RT scans from between 5% and 25% peak height)
+        rt_min, rt_max = _find_leading_edge_rt(pre_xic_rt, pre_xic_int, peak_rt, peak_ht, peak_wt, (0.05, 0.25), 
+                                               debug_flag, debug_cb)
+    else:
+        rt_min, rt_max = peak_rt - rt_tol, peak_rt + rt_tol
+    if rt_min is None or rt_max is None:
+        # finding the leading edge failed, do not apply correction
+        msg = 'failed to select scans from leading edge of RT peak, reverting to original RT bounds'
+        _debug_handler(debug_flag, debug_cb, msg=msg)
+        rt_min, rt_max = peak_rt - rt_tol, peak_rt + rt_tol
+        is_saturated = False
+    # extract MS1 and score (using RT bounds)
+    pre_scores, pre_iso_dist_img = _extract_ms1_and_calc_isotope_score(oz_data, pre_target_mz, pre_target_abun, 
+                                                                       rt_min, rt_max, ms1_fit_method, 
+                                                                       debug_flag, debug_cb)
+    if pre_scores is None:
+        _debug_handler(debug_flag, debug_cb, msg='unable to determine precursor scores')
+        if info_cb is not None and debug_flag is None:  # avoid duplication of messages
+            info_cb('INFO: unable to determine precursor scores')
+        return None
+    results['precursor'] = {
+        'target_mz': pre_target_mz[0],
+        'target_rt': precursor_rt,
+        'xic_peak_rt': peak_rt,
+        'xic_peak_ht': peak_ht,
+        'xic_peak_fwhm': peak_wt,
+        'mz_ppm': pre_scores[0], 
+        'abun_percent': pre_scores[1], 
+        'mz_cos_dist': pre_scores[2],
+        'isotope_dist_img': pre_iso_dist_img,
+        'xic_fit_img': pre_xic_fit_img,
+        'saturation_corrected': check_saturation and is_saturated
+    }
+    n_combos = len(db_idxs)
+    for db_idx, db_pos in zip(db_idxs, db_posns):
+        # ITERATE THROUGH DB POSITIONS AND LOOK FOR FRAGMENTS
+        #---------------------------------------------------------------------------------------------------
+        if db_idx not in results['fragments']:
+            results['fragments'][db_idx] = {}
+        results['fragments'][db_idx][db_pos] = {}
+        msg = '\n----------db_idx={},db_pos={}----------'.format(db_idx, db_pos)
+        _debug_handler(debug_flag, debug_cb, msg=msg)
+        # get aldehyde and criegee formulas
+        ald_formula, crg_formula = _polyunsat_ald_crg_formula(precursor_formula, db_pos, db_idx)
+        if remove_d is not None:
+            # adjust the molecular formulas to get rid of D7 labels in neutral loss fragments
+            # applicable to SPLASH lipid standards only
+            ald_formula.pop('D')
+            ald_formula['H'] += remove_d
+            crg_formula.pop('D')
+            crg_formula['H'] += remove_d
+        # scoring for aldehyde
+        ald_results = _do_fragment_scoring(oz_data, 'aldehyde', ald_formula, mz_tol, ms1_fit_method, rtb,
+                                           rt_fit_method, precursor_rt, rt_tol, pre_xic_rt, pre_xic_int, 
+                                           check_saturation, saturation_threshold, 
+                                           debug_flag, debug_cb)
+        # scoring for criegee
+        crg_results = _do_fragment_scoring(oz_data, 'criegee', crg_formula, mz_tol, ms1_fit_method, rtb, 
+                                           rt_fit_method, precursor_rt, rt_tol, pre_xic_rt, pre_xic_int, 
+                                           check_saturation, saturation_threshold, 
+                                           debug_flag, debug_cb)
+        results['fragments'][db_idx][db_pos]['aldehyde'] = ald_results
+        results['fragments'][db_idx][db_pos]['criegee'] = crg_results
+        if info_cb is not None:
+            msg = 'INFO: {} of {} done'.format(i, n_combos)
+            info_cb(msg)
+            i += 1
+        #---------------------------------------------------------------------------------------------------
+    _debug_handler(debug_flag, debug_cb, msg='------------------------------\n\n')
+    # TODO (Dylan Ross): Look for second-order OzID fragments if at least two chains were specified and at least 
+    #                    two contain unsaturations. Like with first-order OzID fragments, compute the unique set 
+    #                    of all second order fragments, each defined by a pair of db_idx values and corresponding 
+    #                    pair of db_pos values. Probably good to make a helper function that performs this calculation 
+    #                    that takes the lists of fa_carbons and fa_unsats as input and outputs a set of these unique
+    #                    pairs. Also need to implement the actual fragment formula calculations, but I am pretty sure 
+    #                    it should be just as simple as sequentially calling the predict OzID fragment formulas, using
+    #                    either the aldehyde or criegee formula as input on the second round. But there will have to
+    #                    be some pruning of these formulas to avoid double counting of the AC/CA species.
+    return results
+

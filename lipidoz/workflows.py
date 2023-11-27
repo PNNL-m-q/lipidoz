@@ -5,7 +5,6 @@ Dylan Ross (dylan.ross@pnnl.gov)
 
     define components of standard high-level workflows for OzID
 
-    TODO (Dylan Ross) add in support for isotope analysis on non-chromatographic (i.e. direct infusion) data
 """
 
 
@@ -19,7 +18,10 @@ from mzapy import MZA
 from mzapy.isotopes import valid_ms_adduct, monoiso_mass, ms_adduct_formula
 
 from lipidoz import __version__ as VER
-from lipidoz.isotope_scoring import score_db_pos_isotope_dist_polyunsat, score_db_pos_isotope_dist_polyunsat_infusion
+from lipidoz.isotope_scoring import (
+    score_db_pos_isotope_dist_polyunsat, score_db_pos_isotope_dist_polyunsat_infusion,
+    score_db_pos_isotope_dist_targeted
+)
 from lipidoz._util import _polyunsat_ald_crg_formula, _calc_dbp_bounds, _debug_handler
 from lipidoz.ml.data import load_preml_data, load_ml_targets, split_true_and_false_preml_data, preml_to_ml_data
 from lipidoz._pyliquid import parse_lipid_name
@@ -27,6 +29,63 @@ from lipidoz._pyliquid import parse_lipid_name
 
 def _load_target_list(target_list_file, ignore_preferred_ionization, rt_correction_func):
     """
+    loads target list from .csv file, performs some basic validation
+    Exceptions raised in this function happen before MZA is initialized which is better than having
+    them raised while it is initialized (the IO threads can complicate things), so as much parameter
+    validation should be done here as possible
+
+    Parameters
+    ----------
+    target_list_file : ``str``
+        filename and path for target list (.csv format)
+    ignore_preferred_ionization : ``bool``
+        whether to ignore cases where a lipid/adduct combination violates the lipid class' preferred ionization state
+    rt_correction_func : ``function``
+        if not None, specifies a function that takes uncorrected retention time as an argument and returns the 
+        corrected retention time
+
+    Returns
+    -------
+    target_lipids : ``list(pyliquid.lipids.LipidWithChains)``
+        target lipids as ``pyliquid.lipids.LipidWithChains``
+    target_adducts : ``list(str)``
+        MS adducts of target lipids
+    target_rts : ``list(float)``
+        retention times of target lipids (corrected if rt_correction_func is not None)
+    """
+    names, adducts, rts = np.loadtxt(target_list_file, dtype=str, delimiter=',', skiprows=1, 
+                                     unpack=True, comments='#', ndmin=2)
+    target_lipids = [parse_lipid_name(name) for name in names]
+    adducts = [adduct for adduct in adducts]
+    rts = [float(rt) for rt in rts]
+    # perform as much input validation as possible ahead of time
+    for i, (name, lipid, adduct) in enumerate(zip(names, target_lipids, adducts)):
+        line = i + 2
+        if lipid is None:
+            msg = '_load_target_list: name "{}" was not able to be parsed as lipid (line: {})'
+            raise ValueError(msg.format(name, line))
+        if lipid.__class__.__name__ != 'LipidWithChains':
+            msg = ('_load_target_list: lipid {} has more than 1 acyl chain ({}) but individual chain compositions'
+                   ' were not provided (line: {})')
+            raise ValueError(msg.format(name, lipid.n_chains, line))
+        if not valid_ms_adduct(adduct):
+            msg = '_load_target_list: {} is not a recognized MS adduct (line: {})'
+            raise ValueError(msg.format(adduct, line))
+        if ((adduct[-1] == '+' and lipid.ionization not in ['both', 'pos']) 
+            or (adduct[-1] == '-' and lipid.ionization not in ['both', 'neg'])):
+            if not ignore_preferred_ionization:
+                msg = '_load_target_list: lipid {} ionization is {} but adduct was {} (line: {})'
+                raise ValueError(msg.format(name, lipid.ionization, adduct, line))
+    # correct RT values if a correction function was provided
+    if rt_correction_func is not None:
+        rts = [rt_correction_func(_) for _ in rts]
+    return target_lipids, adducts, rts
+
+
+def _load_target_list_targeted(target_list_file, ignore_preferred_ionization, rt_correction_func):
+    """
+    an alternative function for loading a target list with specified target db indices and positions
+
     loads target list from .csv file, performs some basic validation
     Exceptions raised in this function happen before MZA is initialized which is better than having
     them raised while it is initialized (the IO threads can complicate things), so as much parameter
@@ -126,7 +185,7 @@ def _load_target_list_infusion(target_list_file, ignore_preferred_ionization):
 def run_isotope_scoring_workflow(oz_data_file, target_list_file, rt_tol, rt_peak_win, mz_tol, 
                                  d_label=None, d_label_in_nl=None, progress_cb=None, info_cb=None, 
                                  early_stop_event=None, debug_flag=None, debug_cb=None, rt_correction_func=None, 
-                                 ignore_preferred_ionization=False, mza_version='new'):
+                                 ignore_preferred_ionization=True, mza_version='new'):
     """
     workflow for performing isotope scoring for the determination of db positions. 
     inputs are the data file and target list file, output is a dictionary containing metadata about the analysis and
@@ -245,6 +304,154 @@ def run_isotope_scoring_workflow(oz_data_file, target_list_file, rt_tol, rt_peak
                                                            tlipid.fa_unsat_chains, trt, rt_tol, 
                                                            rt_peak_win, mz_tol, remove_d=remove_d, 
                                                            debug_flag=debug_flag, debug_cb=debug_cb, info_cb=info_cb)
+        # add individual result to full results
+        rt_str = '{:.2f}min'.format(trt)
+        if str(tlipid) in results['targets']:
+            if tadduct in results['targets'][str(tlipid)]:
+                results['targets'][str(tlipid)][tadduct][rt_str] = lipid_result
+            else:
+                results['targets'][str(tlipid)][tadduct] = {rt_str: lipid_result}
+        else:
+            results['targets'][str(tlipid)] = {tadduct: {rt_str: lipid_result}}
+        # call progress callback function if provided
+        if progress_cb is not None:
+            progress_cb(str(tlipid), tadduct, i, n)
+            i += 1
+    # clean up
+    oz_data.close()
+    return results
+
+
+def run_isotope_scoring_workflow_targeted(oz_data_file, target_list_file, rt_tol, rt_peak_win, mz_tol, 
+                                          d_label=None, d_label_in_nl=None, progress_cb=None, info_cb=None, 
+                                          early_stop_event=None, debug_flag=None, debug_cb=None, rt_correction_func=None, 
+                                          ignore_preferred_ionization=True, mza_version='new'):
+    """
+    workflow for performing isotope scoring for the determination of db positions. 
+
+    ! TARGETED VARIANT ! 
+
+    inputs are the data file and target list file, output is a dictionary containing metadata about the analysis and
+    the analysis results for all of the lipids in the target list. 
+    The target list should have columns containing the following information (in order, 1 header row is skipped):
+    
+    * lipid name in standard abbreviated format, with FA composition fully specified,
+      *e.g.*, PC(18:1_16:0) or TG(16:0/18:1/20:2)
+    * MS adduct, *e.g.*, [M+H]+ or [M-2H]2-
+    * target retention time
+    * target double bond indices separated by "/", *e.g.* `1/1/1/2`
+    * target double bond positions separated by "/", *e.g.* `6/7/9/9`
+
+    Parameters
+    ----------
+    oz_data_file : ``str``
+        filename and path for OzID data (.mza format)
+    target_list_file : ``str``
+        filename and path for target list (.csv format)
+    rt_tol : ``float``
+        retention time tolerance (for MS1 data extraction)
+    rt_peak_win : ``float``
+        size of retention time window to extract for fitting retention time peak
+    mz_tol : ``float``
+        m/z tolerance for extracting XICs
+    d_label : ``int``, optional
+        number of deuteriums in deuterium-labeled standards (*i.e.* SPLASH and Ultimate SPLASH mixes)
+    d_label_in_nl : ``bool``, optional
+        if deuterium labels are present, indicates whether they are included in the neutral loss during OzID 
+        fragmentation, this is False if the deuteriums are on the lipid head group and True if they are at the end of 
+        a FA tail (meaning that the aldehyde and criegee fragment formulas must be adjusted to account for loss of the
+        label during fragmentataion)
+    progress_cb : ``function``, optional
+        option for a callback function that gets called every time an individual lipid species has been processed, this
+        callback function should take as arguments (in order):
+
+        * lipid name (``str``)
+        * adduct (``str``)
+        * current position in target list (``int``)
+        * total lipids in target list(``int``)
+
+    info_cb : ``function``, optional
+        optional callback function that gets called at several intermediate steps and gives information about data
+        processing details. Callback function takes a single argument which is a ``str`` info message
+    early_stop_event : ``threading.Event``, optional
+        When the workflow is running in its own thread and this event gets set, processing is stopped gracefully
+    debug_flag : ``str``, optional
+        specifies how to dispatch the message and/or plot, None to do nothing
+    debug_cb : ``func``, optional
+        callback function that takes the debugging message as an argument, can be None if
+        debug_flag is not set to 'textcb'
+    ignore_preferred_ionization : ``bool``, default=False
+        whether to ignore cases where a lipid/adduct combination violates the lipid class' preferred ionization state
+    rt_correction_func : ``function``, optional
+        provide a function that takes an uncorrected retention time as an argument
+        then returns the corrected retention time
+    mza_version : ``str``, default='new'
+            temporary measure for indicating whether the the scan indexing needs to account for partitioned
+            scan data ('new') or not ('old'). Again, this is only temporary as at some point the mza version
+            will be encoded as metadata into the file and this accommodation can be made automatically.
+
+    Returns
+    -------
+    isotope_scoring_results : ``dict(...)``
+        results dictionary with metadata and scoring information
+    """
+    # store metadata
+    results = {
+        'metadata': {
+            'workflow': 'isotope_scoring',
+            'lipidoz_version': VER,
+            'oz_data_file': oz_data_file,
+            'target_list_file': target_list_file, 
+            'rt_tol': rt_tol, 
+            'rt_peak_win': rt_peak_win, 
+            'mz_tol': mz_tol,
+            'd_label': d_label, 
+            'd_label_in_nl': d_label_in_nl,
+        },
+        'targets': {},
+    }
+    # load the target list
+    target_data = _load_target_list_targeted(target_list_file, 
+                                             ignore_preferred_ionization, 
+                                             rt_correction_func)
+    target_lipids, target_adducts, target_rts, target_dbidxs, target_dbposns = target_data
+    n = len(target_lipids)
+    if info_cb is not None:
+        msg = 'INFO: loaded target list: {} ({} targets)'.format(target_list_file, n)
+    # load the data 
+    oz_data = MZA(oz_data_file, cache_scan_data=True, mza_version=mza_version)
+    if info_cb is not None:
+        msg = 'INFO: loaded OzID data file: {}'.format(oz_data_file)
+        info_cb(msg)
+    # main data processing
+    i = 1
+    for tlipid, tadduct, trt, tidxs, tposns in zip(target_lipids, target_adducts, target_rts):
+        # unpack the target db indices and positions
+        tidxs = [int(_) for _ in tidxs.split('/')]
+        tposns = [int(_) for _ in tposns.split('/')]
+        # check for a stop event
+        if early_stop_event is not None and early_stop_event.is_set():
+            if info_cb is not None and debug_flag is None:  # avoid duplication of messages
+                info_cb('INFO: EARLY STOP EVENT HAS BEEN SET!')
+            _debug_handler(debug_flag, debug_cb, msg='early stop event has been set')
+            oz_data.close()
+            return None
+        if info_cb is not None:
+            msg = 'INFO: analyzing target lipid {} {}'.format(tlipid, tadduct)
+            info_cb(msg)
+        if d_label is not None:
+            # adjust formula by replacing protons with deuterium label
+            tlipid.formula['H'] -= d_label
+            tlipid.formula['D'] = d_label
+        # check for SPLASH lipids
+        remove_d = d_label if ((d_label is not None) and d_label_in_nl) else None
+        adduct_formula = ms_adduct_formula(tlipid.formula, tadduct)
+        # run the analysis for individual lipid species
+        msg = '\n' + str(tlipid) + ' ' + tadduct + '\n=========================='
+        _debug_handler(debug_flag, debug_cb, msg=msg)
+        lipid_result = score_db_pos_isotope_dist_targeted(oz_data, adduct_formula, tidxs, tposns, trt, rt_tol, 
+                                                          rt_peak_win, mz_tol, remove_d=remove_d, 
+                                                          debug_flag=debug_flag, debug_cb=debug_cb, info_cb=info_cb)
         # add individual result to full results
         rt_str = '{:.2f}min'.format(trt)
         if str(tlipid) in results['targets']:

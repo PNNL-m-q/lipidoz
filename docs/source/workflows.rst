@@ -156,6 +156,8 @@ Isotope Distribution Analysis
 +++++++++++++++++++++++++++++++++++++++
 .. autofunction:: lipidoz.workflows.run_isotope_scoring_workflow
 
+.. autofunction:: lipidoz.workflows.run_isotope_scoring_workflow_targeted
+
 .. autofunction:: lipidoz.workflows.run_isotope_scoring_workflow_infusion
 
 .. autofunction:: lipidoz.workflows.save_isotope_scoring_results
