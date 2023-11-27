@@ -109,12 +109,18 @@ def _load_target_list_targeted(target_list_file, ignore_preferred_ionization, rt
         MS adducts of target lipids
     target_rts : ``list(float)``
         retention times of target lipids (corrected if rt_correction_func is not None)
+    target_dbidxs : ``list(str)``
+        target DB indices, as str separated by "/" (*e.g.* "1/1/2")
+    target_dbposns : ``list(str)``
+        target DB positions, as str separated by "/" (*e.g.* "7/9/9")
     """
-    names, adducts, rts = np.loadtxt(target_list_file, dtype=str, delimiter=',', skiprows=1, 
-                                     unpack=True, comments='#', ndmin=2)
+    names, adducts, rts, idxs, posns = np.loadtxt(target_list_file, dtype=str, delimiter=',', skiprows=1, 
+                                                  unpack=True, comments='#', ndmin=2,)
     target_lipids = [parse_lipid_name(name) for name in names]
     adducts = [adduct for adduct in adducts]
     rts = [float(rt) for rt in rts]
+    idxs = [idx for idx in idxs]
+    posns = [posn for posn in posns]
     # perform as much input validation as possible ahead of time
     for i, (name, lipid, adduct) in enumerate(zip(names, target_lipids, adducts)):
         line = i + 2
@@ -136,7 +142,7 @@ def _load_target_list_targeted(target_list_file, ignore_preferred_ionization, rt
     # correct RT values if a correction function was provided
     if rt_correction_func is not None:
         rts = [rt_correction_func(_) for _ in rts]
-    return target_lipids, adducts, rts
+    return target_lipids, adducts, rts, idxs, posns
 
 
 def _load_target_list_infusion(target_list_file, ignore_preferred_ionization):
@@ -339,8 +345,8 @@ def run_isotope_scoring_workflow_targeted(oz_data_file, target_list_file, rt_tol
       *e.g.*, PC(18:1_16:0) or TG(16:0/18:1/20:2)
     * MS adduct, *e.g.*, [M+H]+ or [M-2H]2-
     * target retention time
-    * target double bond indices separated by "/", *e.g.* `1/1/1/2`
-    * target double bond positions separated by "/", *e.g.* `6/7/9/9`
+    * target double bond indices separated by "/" (*e.g.* "1/1/1/2")
+    * target double bond positions separated by "/" (*e.g.* "6/7/9/9")
 
     Parameters
     ----------
