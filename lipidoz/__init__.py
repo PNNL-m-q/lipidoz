@@ -10,4 +10,4 @@ Dylan Ross (dylan.ross@pnnl.gov)
 
 
 # release.major_version.minor_version
-__version__ = '1.1.1'
+__version__ = '1.1.3'

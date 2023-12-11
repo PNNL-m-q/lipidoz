@@ -919,14 +919,5 @@ def score_db_pos_isotope_dist_targeted(oz_data, precursor_formula, db_idxs, db_p
             i += 1
         #---------------------------------------------------------------------------------------------------
     _debug_handler(debug_flag, debug_cb, msg='------------------------------\n\n')
-    # TODO (Dylan Ross): Look for second-order OzID fragments if at least two chains were specified and at least 
-    #                    two contain unsaturations. Like with first-order OzID fragments, compute the unique set 
-    #                    of all second order fragments, each defined by a pair of db_idx values and corresponding 
-    #                    pair of db_pos values. Probably good to make a helper function that performs this calculation 
-    #                    that takes the lists of fa_carbons and fa_unsats as input and outputs a set of these unique
-    #                    pairs. Also need to implement the actual fragment formula calculations, but I am pretty sure 
-    #                    it should be just as simple as sequentially calling the predict OzID fragment formulas, using
-    #                    either the aldehyde or criegee formula as input on the second round. But there will have to
-    #                    be some pruning of these formulas to avoid double counting of the AC/CA species.
     return results
 

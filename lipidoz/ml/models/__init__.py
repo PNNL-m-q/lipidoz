@@ -146,7 +146,7 @@ class _Model():
         return best_loss, best_acc, best_model_wts
 
     def train(self, dataloaders, dataset_sizes, 
-              criterion=None, optimizer=None, scheduler=None, epochs=32, debug=False):
+              criterion=None, optimizer=None, scheduler=None, epochs=32, debug=False, xent_f_t_weights=[0.9, 0.1]):
         """
         Trains a model with specified dataset and training parameters
 
@@ -167,6 +167,10 @@ class _Model():
             number of epochs to train over
         debug : ``bool``, default=False
             print debugging info
+        xent_f_t_weights : ``list(float)``, default=[0.9, 0.1]
+            if using the default cross-entropy loss, set weights for [F, T] classes. By defalt this
+            ratio is 0.9 F to 0.1 T to reflect the approximate imbalance in training examples, but 
+            the ratio can be tuned to achieve desired prediction characteristics
         """
         if debug:
             # keep track of elapsed time
@@ -177,7 +181,8 @@ class _Model():
         # deal with all of the training utilities
         if criterion is None:
             # weight False/True 90%/10% to approximate imbalance of labels in training data
-            criterion = torch.nn.CrossEntropyLoss(weight=torch.tensor([0.9, 0.1]))
+            # this is now configurable
+            criterion = torch.nn.CrossEntropyLoss(weight=torch.tensor(xent_f_t_weights))
         if optimizer is None:
             # Adam optimizer, 0.001 learning rate
             optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
