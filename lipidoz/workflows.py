@@ -8,6 +8,14 @@ Dylan Ross (dylan.ross@pnnl.gov)
 """
 
 
+# TODO (Dylan Ross): maybe it is better to have a params dataclass for the isotope scoring workflow
+#                    which includes optional DB positions/indices for the targeted variant of the 
+#                    workflow as well, that way the params can just be passed in as a single instance
+#                    of that object and the correct workflow function can be selected by checking the
+#                    params instance for the positions/indices. It would do a good job of simplifying
+#                    the API at the level of the workflow functions in general which would be nice
+
+
 import os
 import pickle
 
@@ -431,7 +439,7 @@ def run_isotope_scoring_workflow_targeted(oz_data_file, target_list_file, rt_tol
         info_cb(msg)
     # main data processing
     i = 1
-    for tlipid, tadduct, trt, tidxs, tposns in zip(target_lipids, target_adducts, target_rts):
+    for tlipid, tadduct, trt, tidxs, tposns in zip(target_lipids, target_adducts, target_rts, target_dbidxs, target_dbposns):
         # unpack the target db indices and positions
         tidxs = [int(_) for _ in tidxs.split('/')]
         tposns = [int(_) for _ in tposns.split('/')]
@@ -459,7 +467,7 @@ def run_isotope_scoring_workflow_targeted(oz_data_file, target_list_file, rt_tol
                                                           rt_peak_win, mz_tol, remove_d=remove_d, 
                                                           debug_flag=debug_flag, debug_cb=debug_cb, info_cb=info_cb)
         # add individual result to full results
-        rt_str = '{:.2f}min'.format(trt)
+        rt_str = f"{trt:.2f}min"
         if str(tlipid) in results['targets']:
             if tadduct in results['targets'][str(tlipid)]:
                 results['targets'][str(tlipid)][tadduct][rt_str] = lipid_result
