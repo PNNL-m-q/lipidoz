@@ -185,3 +185,16 @@ def _debug_handler(debug_flag, debug_cb, msg=None, img=None):
                 ve = '_debug_handler: debug_flag was set to "textcb" but no debug_cb was provided'
                 raise ValueError(ve)
 
+
+def new_lipidoz_results():
+    """
+    create a new lipidoz results dictionary with empty fields 
+    """
+    lipidoz_results = {
+        "isotope_scoring_results": None,
+        "preml_data": None,
+        "ml_data": None,
+        "ml_predictions": None,
+        "ml_params_file": None
+    }
+    return lipidoz_results

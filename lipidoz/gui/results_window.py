@@ -33,7 +33,7 @@ class ResultsWindow():
         """
         # status flag
         self.back_to_setup = False
-        # store the results and get rid of entries where both ald. and crg are none
+        # store the results
         self.results = isotope_scoring_results
         #self._remove_nones_from_results()
         # init window and configure

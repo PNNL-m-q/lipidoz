@@ -30,7 +30,7 @@ from lipidoz.isotope_scoring import (
     score_db_pos_isotope_dist_polyunsat, score_db_pos_isotope_dist_polyunsat_infusion,
     score_db_pos_isotope_dist_targeted
 )
-from lipidoz._util import _polyunsat_ald_crg_formula, _calc_dbp_bounds, _debug_handler
+from lipidoz._util import _polyunsat_ald_crg_formula, _calc_dbp_bounds, _debug_handler, new_lipidoz_results
 from lipidoz.ml.data import load_preml_data, load_ml_targets, split_true_and_false_preml_data, preml_to_ml_data
 from lipidoz._pyliquid import parse_lipid_name
 
@@ -412,7 +412,7 @@ def run_isotope_scoring_workflow_targeted(oz_data_file, target_list_file, rt_tol
     # store metadata
     results = {
         'metadata': {
-            'workflow': 'isotope_scoring',
+            'workflow': 'isotope_scoring_targeted',
             'lipidoz_version': VER,
             'oz_data_file': oz_data_file,
             'target_list_file': target_list_file, 
@@ -582,7 +582,7 @@ def run_isotope_scoring_workflow_infusion(oz_data_file, target_list_file, mz_tol
                                                                     mz_tol, remove_d=remove_d, 
                                                                     debug_flag=debug_flag, debug_cb=debug_cb)
         # add individual result to full results
-        rt_str = 'inf'
+        rt_str = 'infusion'
         if str(tlipid) in results['targets']:
             if tadduct in results['targets'][str(tlipid)]:
                 results['targets'][str(tlipid)][tadduct][rt_str] = lipid_result
@@ -599,7 +599,7 @@ def run_isotope_scoring_workflow_infusion(oz_data_file, target_list_file, mz_tol
     return results
 
 
-def save_isotope_scoring_results(isotope_scoring_results, results_file_name, infusion=False):
+def save_isotope_scoring_results(isotope_scoring_results, results_file_name):
     """
     save the results of the isotope scoring workflow (complete with metadata) to file in pickle format
 
@@ -610,16 +610,21 @@ def save_isotope_scoring_results(isotope_scoring_results, results_file_name, inf
     results_file_name : ``str``
         filename and path to save the results file under, should have .loz file ending (maintains 
         compatibility with ``lipidoz_gui``)
-    infusion : ``bool``, default=False
-        indicates whether this is infusion data, if so the file extension should be .lozi
     """
-    ext_should_be = '.lozi' if infusion else '.loz'
+    ext_should_be = '.loz'
     ext = os.path.splitext(results_file_name)[-1]
-    if ext != ext_should_be:
+    if ext != ".loz":
         msg = 'save_isotope_scoring_results: results file should have {} extension (was: {})'
         raise ValueError(msg.format(ext_should_be, ext))
+    # check if file exists
+    if os.path.isfile(results_file_name):
+        with pickle.load(results_file_name, "rb") as pf:
+            all_results = pickle.load(pf)
+    else:
+        all_results = new_lipidoz_results()
+        all_results["isotope_scoring_results"] = isotope_scoring_results
     with open(results_file_name, 'wb') as pf:
-        pickle.dump(isotope_scoring_results, pf)
+        pickle.dump(all_results, pf)
 
 
 def _write_metadata_to_sheet(metadata, workbook):
