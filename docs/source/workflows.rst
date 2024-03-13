@@ -28,7 +28,68 @@ treated as comments and ignored.
 .. note::
     
     Target list format for :func:`lipidoz.workflows.run_isotope_scoring_workflow_infusion` is the same, 
-    but excluding the retention time column
+    but excluding the retention time column, and target list format for :func:`lipidoz.workflows.run_isotope_scoring_workflow_targeted`
+    is likewise the same except for the inclusion of additional columns for targeted DB indices and positions.
+    See examples below.
+
+.. code-block:: none
+    :caption: Example target list for isotope scoring (infusion)
+
+    lipid,adduct
+    PE(17:0_18:1),[M-H]-
+    PE(17:0_20:3),[M-H]-
+    PE(17:0_22:4),[M-H]-
+    #CE(18:1),[M-H]-  <- this line is commented out so it will be ignored
+    PG(17:0_18:1),[M-H]-
+    PG(17:0_20:3),[M-H]-
+    PG(17:0_22:4),[M-H]-
+
+
+.. code-block:: none
+    :caption: Example target list for isotope scoring (targeted)
+
+    lipid,adduct,retention_time,db_idx,db_pos
+    PE(17:0_18:1),[M-H]-,23.70,1,9
+    PE(17:0_20:3),[M-H]-,22.99,1/2/3,6/9/12
+    PE(17:0_22:4),[M-H]-,23.46,1/2/3/4,3/6/9/12
+    #CE(18:1),[M-H]-,12.34,1,9  <- this line is commented out so it will be ignored
+    # note that multiple target DB indices/positions can be included in one line 
+    # and they are separated by /
+    PG(17:0_18:1),[M-H]-,23.70,1,9
+    PG(17:0_20:3),[M-H]-,22.99,1/2/3,6/9/12
+    PG(17:0_22:4),[M-H]-,23.46,1/2/3/4,3/6/9/12
+
+
+.. _lipidoz-results-desc:
+
+Structure of *LipidOz* Results
+------------------------------------------------------------
+*LipidOz* now has multiple workflows for analyzing OzID data in different ways (*e.g.* 
+isotope distribution analysis, machine-learning, hybrid approach), each of which produces
+its own set of results in the form of extracted/processed data and metadata. The sections
+below detail the structure of those individual results sets. In order to easily organize
+the different results, an overarching datastructure, termed `lipidoz_results` is defined 
+which is simply a dictionary with sections for storing the results from each of the different 
+individual workflows. The structure of the `lipidoz_results` is as follows:
+
+
+.. code-block:: python3
+    :caption: Layout of ``lipidoz_results`` dictionary
+
+    lipidoz_results = {
+        # normal/infusion/targeted variants all get packed into this one
+        'isotope_scoring_results': {...isotope_scoring_results...},  
+        'preml_data': {...preml_data...},
+        'ml_data': np.array(...),
+        # when DL inference is run, put the predictions
+        # and probabilities into arrays
+        # and store the name of the parameters file used
+        # to run the inference
+        'ml_pred_lbls': np.array(...),
+        'ml_pred_probs': np.array(...),
+        'ml_params_file': 'resnet18_SPLA-ULSP-BTLE_params.pt'
+    }
+
 
 .. _iso-scoring-workflow-results:
 
@@ -51,59 +112,132 @@ lipid and MS adduct) are stored underneath these sub-sections.
 
 .. note:: 
     
-    Results from :func:`lipidoz.workflows.run_isotope_scoring_workflow_infusion` are the same as for 
-    :func:`lipidoz.workflows.run_isotope_scoring_workflow`, except all information related to retention 
-    time are omitted. 
+    Results from :func:`lipidoz.workflows.run_isotope_scoring_workflow_targeted` are the same as for 
+    :func:`lipidoz.workflows.run_isotope_scoring_workflow`, except the metadata "workflow" entry will
+    be set to "isotope_scoring_targeted"
 
 
 .. code-block:: python3
     :caption: Example ``run_isotope_scoring_workflow`` results dictionary
 
-    results = {
+    isotope_scoring_results = {
         'metadata': {
             'workflow': 'isotope_scoring',
-            'lipidoz_version': '0.4.20',
-            'oz_data_file': '../../_data/Ultimate-Splash_NEG_O3_Run-1.mza',
-            'target_list_file': 'test_target_list.csv',
-            'rt_tol': 0.2,  # retention time tolerance used for extracting MS1 spectra
-            'rt_peak_win': 1.5,  # size of retention time window to extract for XIC fitting
-            'mz_tol': 0.01,  # m/z tolerance for XIC extraction
-            'd_label': 5,  # number of deuteriums for labeled lipid standards
-            'd_label_in_nl': False,  # the deuterium labels are not part of the neutral loss
+            'lipidoz_version': 0.4.20,
+            'oz_data_file': 'data/ozid_data_file.mza',
+            'target_list_file': 'a_target_list.csv',
+            'rt_tol': 0.25,
+            'rt_peak_win': 1.5,
+            'mz_tol': 0.05,
+            'd_label': None,
+            'd_label_in_nl': None,
         },
         'targets': {
-            'PE(18:1_17:0)': {
-                '[M-H]-': {
-                    '20.00min': {
-                            # ... individual lipid species results
+            'PC(16:1_16:0)': {
+                '[M+H]+': {
+                    '21.05min': {
+                        'precursor': {
+                            'target_mz': 789.0123,
+                            'target_rt': 23.45,
+                            'xic_peak_rt': 23.45,
+                            'xic_peak_ht': 1e5,
+                            'xic_peak_fwhm': 0.15,
+                            'mz_ppm': 10.1,
+                            'abun_percent': 5.5,
+                            'mz_cos_dist': 0.15,
+                            'isotope_dist_img': ...,
+                            'xic_fit_img': ...,
+                            'saturation_corrected': False
+                        },
+                        'fragments': {
+                            1: {
+                                9: {
+                                    'aldehyde': {
+                                        'target_mz': 234.5678,
+                                        'target_rt': 23.45,
+                                        'xic_peak_rt': 23.45,
+                                        'xic_peak_ht': 1e4,
+                                        'xic_peak_fwhm': 0.25,
+                                        'mz_ppm': 10.1,
+                                        'abun_percent': 5.5,
+                                        'mz_cos_dist': 0.15,
+                                        'rt_cos_dist': 0.25,
+                                        'isotope_dist_img': ...,
+                                        'xic_fit_img': ...,
+                                        'saturation_corrected': False,
+                                    },
+                                    # if the fragment was not found the section is set to None
+                                    'criegee': None  
+                                },
+                                # more db positions ...
+                            },
+                            # more db indices ...
                         }
                     },
-                    '22.22min': {
-                            # ... individual lipid species results
-                        }
-                    },
+                    # more retention times ...
                 },
+                # more adducts ...
             },
-            'PE(20:3_17:0)': {
-                '[M-H]-': {
-                    '21.21min': {
-                            # ... individual lipid species results
+            # more targets ...
+        },
+    }
+
+
+.. _iso-scoring-workflow-results-inf:
+
+Structure of ``run_isotope_scoring_workflow_infusion`` Results
+----------------------------------------------------------------
+The results from the infusion variant of the isotope scoring workflow are very similar
+to those from the normal version, except any component having to do with retention time
+is omitted.
+
+
+.. code-block:: python3
+    :caption: Example ``run_isotope_scoring_workflow_infusion`` results dictionary
+
+    isotope_scoring_results = {
+        'metadata': {
+            'workflow': 'isotope_scoring_infusion',
+            'lipidoz_version': 0.4.20,
+            'oz_data_file': 'data/infusion_ozid_data_file.mza',
+            'target_list_file': 'a_target_list.csv',
+            'mz_tol': 0.05,
+            'd_label': None,
+            'd_label_in_nl': None,
+        },
+        'targets': {
+            'PC(16:1_16:0)': {
+                '[M+H]+': {
+                    'infusion': {  # instead of a retention time the label here is just "infusion"
+                        'precursor': {
+                            'target_mz': 789.0123,
+                            'mz_ppm': 10.1,
+                            'abun_percent': 5.5,
+                            'mz_cos_dist': 0.15,
+                            'isotope_dist_img': ...,
+                        },
+                        'fragments': {
+                            1: {
+                                9: {
+                                    'aldehyde': {
+                                        'target_mz': 234.5678,
+                                        'mz_ppm': 10.1,
+                                        'abun_percent': 5.5,
+                                        'mz_cos_dist': 0.15,
+                                        'isotope_dist_img': ...,
+                                    },
+                                    # if the fragment was not found the section is set to None
+                                    'criegee': None  
+                                },
+                                # more db positions ...
+                            },
+                            # more db indices ...
                         }
-                    },
+                    }
                 },
-                '[M-HCOO]-': {
-                    # ... individual lipid species results
-                },
+                # more adducts ...
             },
-            'PE(22:4_17:0)': {
-                '[M-H]-': {
-                    '17.38min': {
-                            # ... individual lipid species results
-                        }
-                    },
-                },
-            },
-            # ... results for other target lipids omitted
+            # more targets ...
         },
     }
 
@@ -156,6 +290,8 @@ Isotope Distribution Analysis
 +++++++++++++++++++++++++++++++++++++++
 .. autofunction:: lipidoz.workflows.run_isotope_scoring_workflow
 
+.. autofunction:: lipidoz.workflows.run_isotope_scoring_workflow_targeted
+
 .. autofunction:: lipidoz.workflows.run_isotope_scoring_workflow_infusion
 
 .. autofunction:: lipidoz.workflows.save_isotope_scoring_results
@@ -173,3 +309,18 @@ Machine Learning
 .. autofunction:: lipidoz.workflows.convert_multi_preml_datasets_labeled
 
 .. autofunction:: lipidoz.workflows.convert_multi_preml_datasets_unlabeled
+
+
+Hybrid Workflow
++++++++++++++++++++++++++++++++++++++++
+
+.. note::
+    
+    The hybrid workflow uses ML inference to prioritize targets for full
+    analysis using the targeted variant of the isotope distribution analysis.
+    See :ref:`lipidoz-results-desc` for details on how the data from these 
+    different steps is organized in the `lipidoz_results` dictionary that is
+    returned by this function. 
+
+.. autofunction:: lipidoz.workflows.hybrid_deep_learning_and_isotope_scoring
+

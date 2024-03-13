@@ -92,6 +92,7 @@ class LOzApp():
     def _processing_worker(self, results_queue, error_queue, message_queue, complete_event, early_stop_event):
         """
         """
+        # TODO (Dylan Ross): handle params as a dataclass, include targeted variant of workflow function
         oz_file, target_file, rt_tol, rt_ext_win, mz_tol, d_label, d_label_in_nl = self.processing_params
         def progress_message(lipid_name, adduct, current, total):
             msg = '{} {} processing complete ({} of {})\n'
@@ -150,7 +151,7 @@ class LOzApp():
         """
         display results with the results window
         """
-        self.results_win = ResultsWindow(self.results)
+        self.results_win = ResultsWindow(self.results["isotope_scoring_results"])
         # check for back to setup flag
         if self.results_win.back_to_setup:
             # start from the beginning

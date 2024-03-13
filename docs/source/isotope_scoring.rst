@@ -106,11 +106,15 @@ from the end of the acyl chain).
     
     Results from :func:`lipidoz.isotope_scoring.score_db_pos_isotope_dist_polyunsat_infusion` are the same as for 
     :func:`lipidoz.isotope_scoring.score_db_pos_isotope_dist_polyunsat`, except all information related to retention 
-    time, XIC, *etc.* are omitted
+    time, XIC, *etc.* are omitted. Likewise, results from :func:`lipidoz.isotope_scoring.score_db_pos_isotope_dist_polyunsat_infusion`
+    and :func:`lipidoz.isotope_scoring.score_db_pos_isotope_dist_targeted` are in exactly the same format, the targeted
+    variant just has results for fewer double bond positions.
 
 
 Module Reference
 ---------------------------------------
 .. autofunction:: lipidoz.isotope_scoring.score_db_pos_isotope_dist_polyunsat
+
+.. autofunction:: lipidoz.isotope_scoring.score_db_pos_isotope_dist_targeted
 
 .. autofunction:: lipidoz.isotope_scoring.score_db_pos_isotope_dist_polyunsat_infusion

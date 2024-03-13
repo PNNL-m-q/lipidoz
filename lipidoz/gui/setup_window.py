@@ -80,7 +80,7 @@ class SetupWindow():
             row 1, column 1 -> input box
             row 1, column 2 -> [...] button -> file select dialog (.mza)
             row 1, column 3 -> [...] button -> file select dialog (convert .d)
-            row 2, column 0 -> "target list"
+            row 2, column 0 -> "target list"  TODO (Dylan Ross): add checkbox for targeted variant
             row 2, column 1 -> input box
             row 2, column 2 -> [...] button -> file select dialog
             row 3, column 0 -> "RT tolerance"
@@ -188,6 +188,8 @@ class SetupWindow():
         """
         callback for when target list file is selected
         """
+        # TODO (Dylan Ross): check the state of targeted checkbox and store that so that the targeted
+        #                    variant of the workflow function gets used in the processing window
         target_list = filedialog.askopenfilename(title='Select target list file', 
                                              filetypes=[('Comma separated values', '.csv')])
         self.upper_frm_ent_vars[1].set(target_list)
