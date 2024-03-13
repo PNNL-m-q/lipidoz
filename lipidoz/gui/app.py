@@ -151,7 +151,7 @@ class LOzApp():
         """
         display results with the results window
         """
-        self.results_win = ResultsWindow(self.results)
+        self.results_win = ResultsWindow(self.results["isotope_scoring_results"])
         # check for back to setup flag
         if self.results_win.back_to_setup:
             # start from the beginning

@@ -194,7 +194,8 @@ def new_lipidoz_results():
         "isotope_scoring_results": None,
         "preml_data": None,
         "ml_data": None,
-        "ml_predictions": None,
+        "ml_pred_lbls": None,
+        "ml_pred_probs": None,
         "ml_params_file": None
     }
     return lipidoz_results

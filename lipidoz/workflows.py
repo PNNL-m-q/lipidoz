@@ -18,6 +18,7 @@ Dylan Ross (dylan.ross@pnnl.gov)
 
 import os
 import pickle
+from tempfile import TemporaryDirectory
 
 import numpy as np
 import xlsxwriter
@@ -33,6 +34,7 @@ from lipidoz.isotope_scoring import (
 from lipidoz._util import _polyunsat_ald_crg_formula, _calc_dbp_bounds, _debug_handler, new_lipidoz_results
 from lipidoz.ml.data import load_preml_data, load_ml_targets, split_true_and_false_preml_data, preml_to_ml_data
 from lipidoz._pyliquid import parse_lipid_name
+from lipidoz.ml.models.resnet18 import ResNet18
 
 
 def _load_target_list(target_list_file, ignore_preferred_ionization, rt_correction_func):
@@ -996,3 +998,112 @@ def convert_multi_preml_datasets_unlabeled(preml_files, normalize_intensity=True
         i += 1
     return np.concatenate(ml_data)
 
+
+def _convert_preml_data_and_dl_labels_into_targeted_target_list(lipidoz_results):
+    """
+    use information from the preml_data and DL predicted labels in a lipidoz_results 
+    dict to construct a target list that will work with the targeted variant of
+    the isotope scoring workflow
+
+    Parameters
+    ----------
+    lipidoz_results : ``dict(...)``
+
+    Returns
+    -------
+    target_list_content : ``str``
+        contents of the generated target list (.csv) as a string
+    """
+    target_list_content = "lipid,adduct,retention_time,db_idx,db_pos\n"
+    for k, l in zip(lipidoz_results["preml_data"]["targets"].keys(), lipidoz_results["ml_pred_lbls"]):
+        if int(l) == 1:
+            target_list_content += k.replace("|", ",").replace("min", "") + "\n"
+    return target_list_content
+
+
+def hybrid_deep_learning_and_isotope_scoring(oz_data_file, target_list_file, rt_tol, rt_peak_win, mz_tol,
+                                             dl_params_file,
+                                             d_label=None, d_label_in_nl=None, 
+                                             debug_flag=None, debug_cb=None):
+    """
+    A hybrid workflow that incorporates deep learning inference as a prefilter
+    then performs targeted isotope scoring workflow on predicted True double bond positions
+
+    Parameters
+    ----------
+    oz_data_file : ``str``
+        filename and path for OzID data (.mza format)
+    target_list_file : ``str``
+        filename and path for target list (.csv format)
+    rt_tol : ``float``
+        retention time tolerance, defines data extraction window
+    rt_peak_win : ``float``
+        size of retention time window to extract for fitting retention time peak
+    mz_tol : ``float``
+        m/z tolerance for extracting XICs
+    dl_params_file : ``str``
+        pre-trained DL model parameters file
+    d_label : ``int``, optional
+        number of deuteriums in deuterium-labeled standards (*i.e.* SPLASH and Ultimate SPLASH mixes)
+    d_label_in_nl : ``bool``, optional
+        if deuterium labels are present, indicates whether they are included in the neutral loss during OzID 
+        fragmentation, this is False if the deuteriums are on the lipid head group and True if they are at the end of 
+        a FA tail (meaning that the aldehyde and criegee fragment formulas must be adjusted to account for loss of the
+        label during fragmentataion)
+    debug_flag : ``str``, optional
+        specifies how to dispatch the message and/or plot, None to do nothing
+    debug_cb : ``func``, optional
+        callback function that takes the debugging message as an argument, can be None if
+        debug_flag is not set to 'textcb'
+    
+    Returns
+    -------
+    lipidoz_results : ``dict(...)``
+        results from DL prefiltering and targeted isotope scoring analysis
+    """
+    # make the lipidoz results dict to store everything in
+    lipidoz_results = new_lipidoz_results()
+    # extract pre-ml dataset and store in lipidoz_results
+    lipidoz_results["preml_data"] = collect_preml_dataset(oz_data_file, target_list_file, rt_tol, 
+                                                          d_label=d_label, d_label_in_nl=d_label_in_nl, 
+                                                          debug_flag=debug_flag, debug_cb=debug_cb)
+    # convert pre-ml data to ML data and store in lipidoz_results
+    lipidoz_results["ml_data"] = preml_to_ml_data(lipidoz_results["preml_data"], debug_flag=debug_flag, debug_cb=debug_cb)
+    # load the model and its pre-trained parameters
+    rn18 = ResNet18()
+    rn18.load(dl_params_file)
+    # run inference and store predictions
+    lipidoz_results["ml_pred_lbls"] = rn18.predict(lipidoz_results["ml_data"])
+    lipidoz_results["ml_pred_probs"] = rn18.predict_proba(lipidoz_results["ml_data"])
+    # TODO (Dylan Ross): Use the predicted True double bond positions as targets for targeted
+    #                    variant of the isotope distribution analysis. For the initial implementation
+    #                    just go ahead and create a tempfile in csv format to serve as the input 
+    #                    target list for the isotope distribution analysis and run that as normal. The
+    #                    problem with this approach though is that raw data extraction will need to be
+    #                    repeated for the targets in the isotope distribution analysis while all info
+    #                    that is needed should already technically be contained in the pre-ml data. 
+    #                    I doubt this will be too big of a deal since the targeted variant of the
+    #                    isotope distribution analysis should already cut down on processing time due
+    #                    to the greatly reduced amount of data that needs to be considered in detail,
+    #                    but in the future it would probably make sense to go ahead and come up with
+    #                    another set of isotope distribution function variants that work directly from
+    #                    already extracted pre-ml data rather than doing the data extraction from the 
+    #                    MZA files themselves as they do now.
+    target_list_content = _convert_preml_data_and_dl_labels_into_targeted_target_list(lipidoz_results)
+    # run targeted isotope distribution analysis 
+    # (use temporary directory with generated target list csv)
+    with TemporaryDirectory() as tmp_dir:
+        target_list_file = os.path.join(tmp_dir, "filtered_targets.csv")
+        with open(target_list_file, "w") as outf:
+            outf.write(target_list_content)
+        lipidoz_results["isotope_scoring_results"] = run_isotope_scoring_workflow_targeted(oz_data_file, 
+                                                                                           target_list_file, 
+                                                                                           rt_tol, 
+                                                                                           rt_peak_win, 
+                                                                                           mz_tol, 
+                                                                                           d_label=d_label, 
+                                                                                           d_label_in_nl=d_label_in_nl, 
+                                                                                           debug_flag=debug_flag, 
+                                                                                           debug_cb=debug_cb)
+    return lipidoz_results
+    

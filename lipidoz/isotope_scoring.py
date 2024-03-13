@@ -889,6 +889,7 @@ def score_db_pos_isotope_dist_targeted(oz_data, precursor_formula, db_idxs, db_p
         'xic_fit_img': pre_xic_fit_img,
         'saturation_corrected': check_saturation and is_saturated
     }
+    results['fragments'] = {}
     n_combos = len(db_idxs)
     for db_idx, db_pos in zip(db_idxs, db_posns):
         # ITERATE THROUGH DB POSITIONS AND LOOK FOR FRAGMENTS
