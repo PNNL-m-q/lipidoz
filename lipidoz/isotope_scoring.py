@@ -498,7 +498,7 @@ def _do_fragment_scoring_infusion(oz_data, fragment, formula, mz_tol, ms1_fit_me
 def score_db_pos_isotope_dist_polyunsat(oz_data, precursor_formula, fa_nc, fa_nu, precursor_rt, rt_tol, 
                                         rt_peak_win, mz_tol, rt_fit_method='gauss', ms1_fit_method='localmax', 
                                         check_saturation=True, saturation_threshold=1e5, remove_d=None, 
-                                        debug_flag=None, debug_cb=None, info_cb=None):
+                                        debug_flag=None, debug_cb=None, info_cb=None, early_stop_event=None):
     """
     performs isotope distribution scoring for a range of potential double-bond positions for polyunsaturated lipids, 
     also works for monounsaturated lipids, and essentially does nothing for completely saturated lipids
@@ -540,6 +540,8 @@ def score_db_pos_isotope_dist_polyunsat(oz_data, precursor_formula, fa_nc, fa_nu
     info_cb : ``function``, optional
         optional callback function that gets called at several intermediate steps and gives information about data
         processing details. Callback function takes a single argument which is a ``str`` info message
+    early_stop_event : ``threading.Event``, optional
+        When the workflow is running in its own thread and this event gets set, processing is stopped gracefully
 
     Returns
     -------
@@ -622,6 +624,10 @@ def score_db_pos_isotope_dist_polyunsat(oz_data, precursor_formula, fa_nc, fa_nu
         info_cb(msg.format(n_combos))
     i = 1
     for db_idx, db_pos in dbidx_dbpos:
+        # check for a stop event
+        if early_stop_event is not None and early_stop_event.is_set():
+            # break the loop if the early stop event gets set
+            return None
         # ITERATE THROUGH DB POSITIONS AND LOOK FOR FRAGMENTS
         #---------------------------------------------------------------------------------------------------
         if db_idx not in results['fragments']:

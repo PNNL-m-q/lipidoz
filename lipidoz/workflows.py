@@ -317,7 +317,8 @@ def run_isotope_scoring_workflow(oz_data_file, target_list_file, rt_tol, rt_peak
         lipid_result = score_db_pos_isotope_dist_polyunsat(oz_data, adduct_formula, tlipid.fa_carbon_chains, 
                                                            tlipid.fa_unsat_chains, trt, rt_tol, 
                                                            rt_peak_win, mz_tol, remove_d=remove_d, 
-                                                           debug_flag=debug_flag, debug_cb=debug_cb, info_cb=info_cb)
+                                                           debug_flag=debug_flag, debug_cb=debug_cb, info_cb=info_cb,
+                                                           early_stop_event=early_stop_event)
         # add individual result to full results
         rt_str = '{:.2f}min'.format(trt)
         if str(tlipid) in results['targets']:
