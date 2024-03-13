@@ -1,3 +1,4 @@
 lipidoz
 numpydoc
 nbsphinx
+sphinz_rtd_theme
