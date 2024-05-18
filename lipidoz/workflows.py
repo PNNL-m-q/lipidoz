@@ -23,7 +23,6 @@ from tempfile import TemporaryDirectory
 import numpy as np
 import xlsxwriter
 
-from mzapy import MZA
 from mzapy.isotopes import valid_ms_adduct, monoiso_mass, ms_adduct_formula
 
 from lipidoz import __version__ as VER
@@ -31,7 +30,7 @@ from lipidoz.isotope_scoring import (
     score_db_pos_isotope_dist_polyunsat, score_db_pos_isotope_dist_polyunsat_infusion,
     score_db_pos_isotope_dist_targeted
 )
-from lipidoz._util import _polyunsat_ald_crg_formula, _calc_dbp_bounds, _debug_handler, new_lipidoz_results
+from lipidoz._util import _polyunsat_ald_crg_formula, _calc_dbp_bounds, _debug_handler, new_lipidoz_results, CustomUReader
 from lipidoz.ml.data import load_preml_data, load_ml_targets, split_true_and_false_preml_data, preml_to_ml_data
 from lipidoz._pyliquid import parse_lipid_name
 from lipidoz.ml.models.resnet18 import ResNet18
@@ -201,7 +200,7 @@ def _load_target_list_infusion(target_list_file, ignore_preferred_ionization):
 def run_isotope_scoring_workflow(oz_data_file, target_list_file, rt_tol, rt_peak_win, mz_tol, 
                                  d_label=None, d_label_in_nl=None, progress_cb=None, info_cb=None, 
                                  early_stop_event=None, debug_flag=None, debug_cb=None, rt_correction_func=None, 
-                                 ignore_preferred_ionization=True, mza_version='new'):
+                                 ignore_preferred_ionization=True):
     """
     workflow for performing isotope scoring for the determination of db positions. 
     inputs are the data file and target list file, output is a dictionary containing metadata about the analysis and
@@ -216,7 +215,7 @@ def run_isotope_scoring_workflow(oz_data_file, target_list_file, rt_tol, rt_peak
     Parameters
     ----------
     oz_data_file : ``str``
-        filename and path for OzID data (.mza format)
+        filename and path for OzID data (.uimf format)
     target_list_file : ``str``
         filename and path for target list (.csv format)
     rt_tol : ``float``
@@ -256,10 +255,6 @@ def run_isotope_scoring_workflow(oz_data_file, target_list_file, rt_tol, rt_peak
     rt_correction_func : ``function``, optional
         provide a function that takes an uncorrected retention time as an argument
         then returns the corrected retention time
-    mza_version : ``str``, default='new'
-            temporary measure for indicating whether the the scan indexing needs to account for partitioned
-            scan data ('new') or not ('old'). Again, this is only temporary as at some point the mza version
-            will be encoded as metadata into the file and this accommodation can be made automatically.
 
     Returns
     -------
@@ -288,8 +283,14 @@ def run_isotope_scoring_workflow(oz_data_file, target_list_file, rt_tol, rt_peak
     n = len(target_lipids)
     if info_cb is not None:
         msg = 'INFO: loaded target list: {} ({} targets)'.format(target_list_file, n)
+        info_cb(msg)
     # load the data 
-    oz_data = MZA(oz_data_file, cache_scan_data=True, mza_version=mza_version)
+    oz_data = CustomUReader(oz_data_file, 4)
+    if info_cb is not None:
+        msg = "INFO: loading OzID data file ..."
+        info_cb(msg)
+    # skip Frame 1 
+    oz_data.accum_frame_spectra_allscans(True)
     if info_cb is not None:
         msg = 'INFO: loaded OzID data file: {}'.format(oz_data_file)
         info_cb(msg)
@@ -412,6 +413,7 @@ def run_isotope_scoring_workflow_targeted(oz_data_file, target_list_file, rt_tol
     isotope_scoring_results : ``dict(...)``
         results dictionary with metadata and scoring information
     """
+    assert False, "not implemented"
     # store metadata
     results = {
         'metadata': {
@@ -544,6 +546,7 @@ def run_isotope_scoring_workflow_infusion(oz_data_file, target_list_file, mz_tol
     isotope_scoring_results : ``dict(...)``
         results dictionary with metadata and scoring information
     """
+    assert False, "not implemented"
     # store metadata
     results = {
         'metadata': {
@@ -820,6 +823,7 @@ def collect_preml_dataset(oz_data_file, target_list_file, rt_tol, d_label=None, 
     pre_ml_dataset : ``dict(...)``
         dataset used for assembling ML training data
     """
+    assert False, "not implemented"
     # store metadata
     pre_ml_dset = {
         'metadata': {
