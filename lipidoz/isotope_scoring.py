@@ -509,8 +509,8 @@ def score_db_pos_isotope_dist_polyunsat(oz_data, precursor_formula, fa_nc, fa_nu
 
     Parameters
     ----------
-    oz_data : ``mzapy.MZA``
-        mza data interface instance for OzID data
+    oz_data : ``lipidoz._util.CustomUReader``
+        UIMF data interface instance for OzID data
     precursor_formula : ``dict(str:int)``
         chemical formula of the precursor ion
     fa_nc : ``tuple(int)``
@@ -714,6 +714,8 @@ def score_db_pos_isotope_dist_polyunsat_infusion(oz_data, precursor_formula, fa_
     result : dict(...)
         dictionary containing analysis results
     """
+    # has not been updated to account for changes from working with UIMF data
+    assert False, "not implemented"
     # use non GUI backend if debug is set to False (required for lipidoz_gui)
     if debug_flag != 'full':
         mpuse('Agg') 
@@ -793,8 +795,8 @@ def score_db_pos_isotope_dist_targeted(oz_data, precursor_formula, db_idxs, db_p
 
     Parameters
     ----------
-    oz_data : ``mzapy.MZA``
-        mza data interface instance for OzID data
+    oz_data : ``lipidoz._util.CustomUReader``
+        UIMF data interface instance for OzID data
     precursor_formula : ``dict(str:int)``
         chemical formula of the precursor ion
     db_idxs : ``list(int)``
@@ -896,7 +898,7 @@ def score_db_pos_isotope_dist_targeted(oz_data, precursor_formula, db_idxs, db_p
     }
     results['fragments'] = {}
     n_combos = len(db_idxs)
-    for db_idx, db_pos in zip(db_idxs, db_posns):
+    for i, (db_idx, db_pos) in enumerate(zip(db_idxs, db_posns)):
         # ITERATE THROUGH DB POSITIONS AND LOOK FOR FRAGMENTS
         #---------------------------------------------------------------------------------------------------
         if db_idx not in results['fragments']:
@@ -926,7 +928,7 @@ def score_db_pos_isotope_dist_targeted(oz_data, precursor_formula, db_idxs, db_p
         results['fragments'][db_idx][db_pos]['aldehyde'] = ald_results
         results['fragments'][db_idx][db_pos]['criegee'] = crg_results
         if info_cb is not None:
-            msg = 'INFO: {} of {} done'.format(i, n_combos)
+            msg = 'INFO: {} of {} done'.format(i + 1, n_combos)
             info_cb(msg)
             i += 1
         #---------------------------------------------------------------------------------------------------
