@@ -30,6 +30,10 @@ from mzapy._util import _ppm_error
 from lipidoz._util import _polyunsat_ald_crg_formula, _calc_dbp_bounds, _debug_handler
 
 
+_XIC_MIN_ABS_INTENSITY = 10
+_MS1_MIN_ABS_INTENSITY = 10
+
+
 def _plot_xic_peaks(xic_rt, xic_int, target_rt, peak1_rt, rt_tol, peak_rts, peak_heights, peak_fwhms):
     """
     plots XIC with fitted peak(s), returns png image as bytes
@@ -167,9 +171,9 @@ def _fit_xic_rt(xic_rt, xic_int, target_mz, mz_tol, target_rt, rt_tol, rt_fit_me
     xic_i_rt, xic_i_int = lerp_1d(xic_rt, xic_int, target_rt - rt_win / 2., target_rt + rt_win / 2., 400)
     # fit xic peak
     if rt_fit_method == 'gauss':
-        peak_rts, peak_hts, peak_wts = find_peaks_1d_gauss(xic_i_rt, xic_i_int, 0.25, 1000, 0.1, 1.0, 5, False)
+        peak_rts, peak_hts, peak_wts = find_peaks_1d_gauss(xic_i_rt, xic_i_int, 0.25, _XIC_MIN_ABS_INTENSITY, 0.1, 1.0, 5, False)
     elif rt_fit_method == 'localmax':
-        peak_rts, peak_hts, peak_wts = find_peaks_1d_localmax(xic_i_rt, xic_i_int, 0.25, 1000, 0.1, 1.0, 0.1)
+        peak_rts, peak_hts, peak_wts = find_peaks_1d_localmax(xic_i_rt, xic_i_int, 0.25, _XIC_MIN_ABS_INTENSITY, 0.1, 1.0, 0.1)
     else:
         msg = '_fit_xic_rt: rt_fit_method must be "localmax" or "gauss" (was: "{}")'
         raise ValueError(msg.format(rt_fit_method))
@@ -360,9 +364,9 @@ def _extract_ms1_and_calc_isotope_score(oz_data, target_mz, target_abun, rt_min,
     # interpolate (1000 points/Da)
     ms1_i_mz, ms1_i_int = lerp_1d(ms1_mz, ms1_int, mz_min, mz_max, 1000)
     if ms1_fit_method == 'gauss':
-        peak_mzs, peak_hts, peak_wts = find_peaks_1d_gauss(ms1_i_mz, ms1_i_int, 0.01, 1000, 0.01, 0.25, 20, False)
+        peak_mzs, peak_hts, peak_wts = find_peaks_1d_gauss(ms1_i_mz, ms1_i_int, 0.01, _MS1_MIN_ABS_INTENSITY, 0.01, 0.25, 20, False)
     elif ms1_fit_method == 'localmax':
-        peak_mzs, peak_hts, peak_wts = find_peaks_1d_localmax(ms1_i_mz, ms1_i_int, 0.01, 1000, 0.01, 0.25, 0.05)
+        peak_mzs, peak_hts, peak_wts = find_peaks_1d_localmax(ms1_i_mz, ms1_i_int, 0.01, _MS1_MIN_ABS_INTENSITY, 0.01, 0.25, 0.05)
     else:
         msg = '_extract_ms1_and_calc_isotope_score: ms1_fit_method must be "localmax" or "gauss" (was: "{}")'
         raise ValueError(msg.format(ms1_fit_method))
@@ -505,8 +509,8 @@ def score_db_pos_isotope_dist_polyunsat(oz_data, precursor_formula, fa_nc, fa_nu
 
     Parameters
     ----------
-    oz_data : ``mzapy.MZA``
-        mza data interface instance for OzID data
+    oz_data : ``lipidoz._util.CustomUReader``
+        UIMF data interface instance for OzID data
     precursor_formula : ``dict(str:int)``
         chemical formula of the precursor ion
     fa_nc : ``tuple(int)``
@@ -555,6 +559,7 @@ def score_db_pos_isotope_dist_polyunsat(oz_data, precursor_formula, fa_nc, fa_nu
     _debug_handler(debug_flag, debug_cb, msg='----------precursor----------')
     # predict precursor isotope distribution
     pre_target_mz, pre_target_abun = predict_m_m1_m2(precursor_formula)
+    _debug_handler(debug_flag, debug_cb, msg=f"mz={pre_target_mz[0]:.4f}")
     # get XIC for  target_rt +/- 0.5 using precursor m/z +/- mz_tol
     mz_min, mz_max = pre_target_mz[0] - mz_tol, pre_target_mz[0] + mz_tol
     rtb = (target_rt - rt_peak_win, target_rt + rt_peak_win)
@@ -633,7 +638,7 @@ def score_db_pos_isotope_dist_polyunsat(oz_data, precursor_formula, fa_nc, fa_nu
         if db_idx not in results['fragments']:
             results['fragments'][db_idx] = {}
         results['fragments'][db_idx][db_pos] = {}
-        msg = '\n----------db_idx={},db_pos={}----------'.format(db_idx, db_pos)
+        msg = '----------db_idx={},db_pos={}----------'.format(db_idx, db_pos)
         _debug_handler(debug_flag, debug_cb, msg=msg)
         # get aldehyde and criegee formulas
         ald_formula, crg_formula = _polyunsat_ald_crg_formula(precursor_formula, db_pos, db_idx)
@@ -661,7 +666,7 @@ def score_db_pos_isotope_dist_polyunsat(oz_data, precursor_formula, fa_nc, fa_nu
             info_cb(msg)
             i += 1
         #---------------------------------------------------------------------------------------------------
-    _debug_handler(debug_flag, debug_cb, msg='------------------------------\n\n')
+    _debug_handler(debug_flag, debug_cb, msg='------------------------------')
     # TODO (Dylan Ross): Look for second-order OzID fragments if at least two chains were specified and at least 
     #                    two contain unsaturations. Like with first-order OzID fragments, compute the unique set 
     #                    of all second order fragments, each defined by a pair of db_idx values and corresponding 
@@ -709,6 +714,8 @@ def score_db_pos_isotope_dist_polyunsat_infusion(oz_data, precursor_formula, fa_
     result : dict(...)
         dictionary containing analysis results
     """
+    # has not been updated to account for changes from working with UIMF data
+    assert False, "not implemented"
     # use non GUI backend if debug is set to False (required for lipidoz_gui)
     if debug_flag != 'full':
         mpuse('Agg') 
@@ -788,8 +795,8 @@ def score_db_pos_isotope_dist_targeted(oz_data, precursor_formula, db_idxs, db_p
 
     Parameters
     ----------
-    oz_data : ``mzapy.MZA``
-        mza data interface instance for OzID data
+    oz_data : ``lipidoz._util.CustomUReader``
+        UIMF data interface instance for OzID data
     precursor_formula : ``dict(str:int)``
         chemical formula of the precursor ion
     db_idxs : ``list(int)``
@@ -891,13 +898,13 @@ def score_db_pos_isotope_dist_targeted(oz_data, precursor_formula, db_idxs, db_p
     }
     results['fragments'] = {}
     n_combos = len(db_idxs)
-    for db_idx, db_pos in zip(db_idxs, db_posns):
+    for i, (db_idx, db_pos) in enumerate(zip(db_idxs, db_posns)):
         # ITERATE THROUGH DB POSITIONS AND LOOK FOR FRAGMENTS
         #---------------------------------------------------------------------------------------------------
         if db_idx not in results['fragments']:
             results['fragments'][db_idx] = {}
         results['fragments'][db_idx][db_pos] = {}
-        msg = '\n----------db_idx={},db_pos={}----------'.format(db_idx, db_pos)
+        msg = '----------db_idx={},db_pos={}----------'.format(db_idx, db_pos)
         _debug_handler(debug_flag, debug_cb, msg=msg)
         # get aldehyde and criegee formulas
         ald_formula, crg_formula = _polyunsat_ald_crg_formula(precursor_formula, db_pos, db_idx)
@@ -921,10 +928,10 @@ def score_db_pos_isotope_dist_targeted(oz_data, precursor_formula, db_idxs, db_p
         results['fragments'][db_idx][db_pos]['aldehyde'] = ald_results
         results['fragments'][db_idx][db_pos]['criegee'] = crg_results
         if info_cb is not None:
-            msg = 'INFO: {} of {} done'.format(i, n_combos)
+            msg = 'INFO: {} of {} done'.format(i + 1, n_combos)
             info_cb(msg)
             i += 1
         #---------------------------------------------------------------------------------------------------
-    _debug_handler(debug_flag, debug_cb, msg='------------------------------\n\n')
+    _debug_handler(debug_flag, debug_cb, msg='------------------------------')
     return results
 
