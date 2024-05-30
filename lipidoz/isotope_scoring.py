@@ -495,7 +495,7 @@ def _do_fragment_scoring_infusion(oz_data, fragment, formula, mz_tol, ms1_fit_me
         return fragment_results
 
 
-def score_db_pos_isotope_dist_polyunsat(oz_data, precursor_formula, fa_nc, fa_nu, precursor_rt, rt_tol, 
+def score_db_pos_isotope_dist_polyunsat(oz_data, precursor_formula, fa_nc, fa_nu, target_rt, rt_tol, 
                                         rt_peak_win, mz_tol, rt_fit_method='gauss', ms1_fit_method='localmax', 
                                         check_saturation=True, saturation_threshold=1e5, remove_d=None, 
                                         debug_flag=None, debug_cb=None, info_cb=None, early_stop_event=None):
@@ -513,8 +513,8 @@ def score_db_pos_isotope_dist_polyunsat(oz_data, precursor_formula, fa_nc, fa_nu
         number of carbons in precursor fatty acids
     fa_nu : ``tuple(int)``
         number of DB in each precursor fatty acid, in same order as precursor_nc
-    precursor_rt : ``float``
-        precursor retention time
+    target_rt : ``float``
+        precursor target retention time
     rt_tol : ``float``
         retention time tolerance
     rt_peak_win : ``float``
@@ -557,11 +557,11 @@ def score_db_pos_isotope_dist_polyunsat(oz_data, precursor_formula, fa_nc, fa_nu
     pre_target_mz, pre_target_abun = predict_m_m1_m2(precursor_formula)
     # get XIC for  target_rt +/- 0.5 using precursor m/z +/- mz_tol
     mz_min, mz_max = pre_target_mz[0] - mz_tol, pre_target_mz[0] + mz_tol
-    rtb = (precursor_rt - rt_peak_win, precursor_rt + rt_peak_win)
+    rtb = (target_rt - rt_peak_win, target_rt + rt_peak_win)
     pre_xic_rt, pre_xic_int = oz_data.collect_xic_arrays_by_mz(mz_min, mz_max, rt_bounds=rtb)
     # get the fitted peak info from the xic
     peak_info, pre_xic_fit_img = _fit_xic_rt(pre_xic_rt, pre_xic_int, pre_target_mz[0], mz_tol, 
-                                             precursor_rt, rt_tol, rt_fit_method, 1., \
+                                             target_rt, rt_tol, rt_fit_method, 1., \
                                              debug_flag, debug_cb)
     peak_rt, peak_ht, peak_wt = peak_info
     if peak_rt is None:
@@ -597,7 +597,7 @@ def score_db_pos_isotope_dist_polyunsat(oz_data, precursor_formula, fa_nc, fa_nu
         return None
     results['precursor'] = {
         'target_mz': pre_target_mz[0],
-        'target_rt': precursor_rt,
+        'target_rt': target_rt,
         'xic_peak_rt': peak_rt,
         'xic_peak_ht': peak_ht,
         'xic_peak_fwhm': peak_wt,
@@ -646,12 +646,12 @@ def score_db_pos_isotope_dist_polyunsat(oz_data, precursor_formula, fa_nc, fa_nu
             crg_formula['H'] += remove_d
         # scoring for aldehyde
         ald_results = _do_fragment_scoring(oz_data, 'aldehyde', ald_formula, mz_tol, ms1_fit_method, rtb,
-                                           rt_fit_method, precursor_rt, rt_tol, pre_xic_rt, pre_xic_int, 
+                                           rt_fit_method, peak_rt, rt_tol, pre_xic_rt, pre_xic_int, 
                                            check_saturation, saturation_threshold, 
                                            debug_flag, debug_cb)
         # scoring for criegee
         crg_results = _do_fragment_scoring(oz_data, 'criegee', crg_formula, mz_tol, ms1_fit_method, rtb, 
-                                           rt_fit_method, precursor_rt, rt_tol, pre_xic_rt, pre_xic_int, 
+                                           rt_fit_method, peak_rt, rt_tol, pre_xic_rt, pre_xic_int, 
                                            check_saturation, saturation_threshold, 
                                            debug_flag, debug_cb)
         results['fragments'][db_idx][db_pos]['aldehyde'] = ald_results
@@ -779,7 +779,7 @@ def score_db_pos_isotope_dist_polyunsat_infusion(oz_data, precursor_formula, fa_
     return results
 
 
-def score_db_pos_isotope_dist_targeted(oz_data, precursor_formula, db_idxs, db_posns, precursor_rt, rt_tol, 
+def score_db_pos_isotope_dist_targeted(oz_data, precursor_formula, db_idxs, db_posns, target_rt, rt_tol, 
                                        rt_peak_win, mz_tol, rt_fit_method='gauss', ms1_fit_method='localmax', 
                                        check_saturation=True, saturation_threshold=1e5, remove_d=None, 
                                        debug_flag=None, debug_cb=None, info_cb=None):
@@ -796,8 +796,8 @@ def score_db_pos_isotope_dist_targeted(oz_data, precursor_formula, db_idxs, db_p
         list of targeted double bond indices
     db_posns : ``list(int)``
         list of targeted double bond positions
-    precursor_rt : ``float``
-        precursor retention time
+    target_rt : ``float``
+        precursor target retention time
     rt_tol : ``float``
         retention time tolerance
     rt_peak_win : ``float``
@@ -838,11 +838,11 @@ def score_db_pos_isotope_dist_targeted(oz_data, precursor_formula, db_idxs, db_p
     pre_target_mz, pre_target_abun = predict_m_m1_m2(precursor_formula)
     # get XIC for  target_rt +/- 0.5 using precursor m/z +/- mz_tol
     mz_min, mz_max = pre_target_mz[0] - mz_tol, pre_target_mz[0] + mz_tol
-    rtb = (precursor_rt - rt_peak_win, precursor_rt + rt_peak_win)
+    rtb = (target_rt - rt_peak_win, target_rt + rt_peak_win)
     pre_xic_rt, pre_xic_int = oz_data.collect_xic_arrays_by_mz(mz_min, mz_max, rt_bounds=rtb)
     # get the fitted peak info from the xic
     peak_info, pre_xic_fit_img = _fit_xic_rt(pre_xic_rt, pre_xic_int, pre_target_mz[0], mz_tol, 
-                                             precursor_rt, rt_tol, rt_fit_method, 1., \
+                                             target_rt, rt_tol, rt_fit_method, 1., \
                                              debug_flag, debug_cb)
     peak_rt, peak_ht, peak_wt = peak_info
     if peak_rt is None:
@@ -878,7 +878,7 @@ def score_db_pos_isotope_dist_targeted(oz_data, precursor_formula, db_idxs, db_p
         return None
     results['precursor'] = {
         'target_mz': pre_target_mz[0],
-        'target_rt': precursor_rt,
+        'target_rt': target_rt,
         'xic_peak_rt': peak_rt,
         'xic_peak_ht': peak_ht,
         'xic_peak_fwhm': peak_wt,
@@ -910,12 +910,12 @@ def score_db_pos_isotope_dist_targeted(oz_data, precursor_formula, db_idxs, db_p
             crg_formula['H'] += remove_d
         # scoring for aldehyde
         ald_results = _do_fragment_scoring(oz_data, 'aldehyde', ald_formula, mz_tol, ms1_fit_method, rtb,
-                                           rt_fit_method, precursor_rt, rt_tol, pre_xic_rt, pre_xic_int, 
+                                           rt_fit_method, peak_rt, rt_tol, pre_xic_rt, pre_xic_int, 
                                            check_saturation, saturation_threshold, 
                                            debug_flag, debug_cb)
         # scoring for criegee
         crg_results = _do_fragment_scoring(oz_data, 'criegee', crg_formula, mz_tol, ms1_fit_method, rtb, 
-                                           rt_fit_method, precursor_rt, rt_tol, pre_xic_rt, pre_xic_int, 
+                                           rt_fit_method, peak_rt, rt_tol, pre_xic_rt, pre_xic_int, 
                                            check_saturation, saturation_threshold, 
                                            debug_flag, debug_cb)
         results['fragments'][db_idx][db_pos]['aldehyde'] = ald_results
