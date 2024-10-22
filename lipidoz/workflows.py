@@ -362,7 +362,8 @@ def run_isotope_scoring_workflow(oz_data_file, target_list_file, mz_tol,
         info_cb(msg)
     # main data processing
     i = 1
-    for tlipid, tadduct in zip(target_lipids, target_adducts):
+    for tlipid, tadduct in sorted(zip(target_lipids, target_adducts), 
+                                  key=lambda x: str(x[0])):
         lpd_str = str(tlipid)
         # check for a stop event
         if early_stop_event is not None and early_stop_event.is_set():
