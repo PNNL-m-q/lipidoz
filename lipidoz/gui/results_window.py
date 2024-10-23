@@ -373,7 +373,6 @@ class ResultsWindow():
         #       crg_data.
         # clear out any existing plots
         self._clear_plots_frame()
-        print(idx_info)
         # indexing information
         lipid, adduct, rt, db_idx, db_pos = idx_info
         # TODO: Perform some indexing here at the top for the precursor section and the 
@@ -398,7 +397,6 @@ class ResultsWindow():
         if (ald_data := self.results['targets'][lipid][adduct][rt]['fragments'][db_idx][db_pos]['aldehyde']) is not None:
             # XIC
             if (xic_img := ald_data["xic_fit_img"]) is not None:
-                print(f"aldehyde xic_fit_img: {xic_img[:16]}...")
                 self.ald_xic_img = Image.open(io.BytesIO(xic_img))
                 self.plots_frm_ald_xic_img = ImageTk.PhotoImage(self.ald_xic_img.resize((self.xwt, self.ht), resample))
                 self.plots_frm_ald_xic.create_image(0, 0, anchor=NW, image=self.plots_frm_ald_xic_img)
@@ -408,7 +406,6 @@ class ResultsWindow():
                     self.plots_frm_ald_xic.create_image(0, 0, image=self.ald_sat_corr_img)
             # isotope distribution
             if (iso_img := ald_data["isotope_dist_img"]) is not None:
-                print(f"aldehyde isotope_dist_img: {iso_img[:16]}...")
                 self.ald_isodist_img = Image.open(io.BytesIO(iso_img))
                 self.plots_frm_ald_isodist_img = ImageTk.PhotoImage(self.ald_isodist_img.resize((self.iwt, self.ht), resample))
                 self.plots_frm_ald_isodist.create_image(0, 0, anchor=NW, image=self.plots_frm_ald_isodist_img)
@@ -416,7 +413,6 @@ class ResultsWindow():
         if (crg_data := self.results['targets'][lipid][adduct][rt]['fragments'][db_idx][db_pos]['criegee']) is not None:
             # XIC
             if (xic_img := crg_data["xic_fit_img"]) is not None:
-                print(f"criegee xic_fit_img: {xic_img[:16]}...")
                 self.crg_xic_img = Image.open(io.BytesIO(xic_img))
                 self.plots_frm_crg_xic_img = ImageTk.PhotoImage(self.crg_xic_img.resize((self.xwt, self.ht), resample))
                 self.plots_frm_crg_xic.create_image(0, 0, anchor=NW, image=self.plots_frm_crg_xic_img)
@@ -426,7 +422,6 @@ class ResultsWindow():
                     self.plots_frm_crg_xic.create_image(0, 0, image=self.crg_sat_corr_img)
             # isotope distribution    
             if (iso_img := crg_data["isotope_dist_img"]) is not None:
-                print(f"criegee isotope_dist_img: {iso_img[:16]}...")
                 self.crg_isodist_img = Image.open(io.BytesIO(iso_img))
                 self.plots_frm_crg_isodist_img = ImageTk.PhotoImage(self.crg_isodist_img.resize((self.iwt, self.ht), resample))
                 self.plots_frm_crg_isodist.create_image(0, 0, anchor=NW, image=self.plots_frm_crg_isodist_img)
