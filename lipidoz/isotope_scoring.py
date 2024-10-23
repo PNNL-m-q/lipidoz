@@ -35,7 +35,7 @@ _MS1_MIN_ABS_INTENSITY = 100
 
 
 def _plot_xic_with_peak(xic_rt, xic_int, prt, pht, pwt,
-                        add_cmp_range=False):
+                        restrict_xlim=False, add_cmp_range=False):
     """
     plots XIC with fitted peak(s), returns png image as bytes
 
@@ -63,7 +63,7 @@ def _plot_xic_with_peak(xic_rt, xic_int, prt, pht, pwt,
     img : ``byes``
         png image of plot as bytes
     """
-    rcParams['font.size'] = 10
+    rcParams['font.size'] = 6
     fig = plt.figure(figsize=(2.25, 1.5))
     ax = fig.add_subplot()
     ax.plot(xic_rt, xic_int, ls='-', c='#777777', zorder=-2, lw=1.5)
@@ -78,12 +78,13 @@ def _plot_xic_with_peak(xic_rt, xic_int, prt, pht, pwt,
         ax.axvline(prt + 3 * pwt, c="#666666", lw=0.5, ls="--", zorder=-3)
     for d in ['top', 'right']:
         ax.spines[d].set_visible(False)
-    ax.set_xlim([max(prt - 5 * pwt, 0), min(prt + 5 * pwt, max(xic_rt))])
+    if restrict_xlim:
+        ax.set_xlim([max(prt - 5 * pwt, 0), min(prt + 5 * pwt, max(xic_rt))])
     ax.set_xlabel('RT (min)')
     ax.set_ylabel('intensity')
     ax.ticklabel_format(axis='y', style='sci', scilimits=(0, 0))
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+    plt.savefig(buf, format='png', dpi=250, bbox_inches='tight')
     plt.close()
     buf.seek(0)
     img = buf.read()
@@ -161,18 +162,18 @@ def _fit_xic_rt(xic_rt, xic_int, rt_fit_method, debug_flag, debug_cb):
     if len(xic_rt) < 2:  # two points needed for interpolation (right? or only 1?)
         # not enough data, cannot fit RT peak
         return (None, None, None), None
-    # perform linear interpolation on the data (400 points/min)
+    # perform linear interpolation on the data (200 points/min)
     xic_i_rt, xic_i_int = lerp_1d(xic_rt, xic_int, min(xic_rt), max(xic_rt), 200)
     # fit xic peak
     if rt_fit_method == 'gauss':
-        peaks = find_peaks_1d_gauss(xic_i_rt, xic_i_int, 0.1, _XIC_MIN_ABS_INTENSITY, 0.1, 1.0, 3, False)
+        peaks = find_peaks_1d_gauss(xic_i_rt, xic_i_int, 0.1, _XIC_MIN_ABS_INTENSITY, 0.1, 1.0, 2, True)
     elif rt_fit_method == 'localmax':
         peaks = find_peaks_1d_localmax(xic_i_rt, xic_i_int, 0.1, _XIC_MIN_ABS_INTENSITY, 0.1, 1.0, 0.1)
     else:
         msg = '_fit_xic_rt: rt_fit_method must be "localmax" or "gauss" (was: "{}")'
         raise ValueError(msg.format(rt_fit_method))
     for prt, pht, pwt in zip(*peaks):
-        img = _plot_xic_with_peak(xic_i_rt, xic_i_int, prt, pht, pwt)
+        img = _plot_xic_with_peak(xic_i_rt, xic_i_int, prt, pht, pwt, restrict_xlim=True)
         # (debug) report the difference between fitted and target RT, plot the peak fit
         msg = f"peak RT: {prt:.2f}"
         _debug_handler(debug_flag, debug_cb, msg=msg, img=img)
@@ -254,7 +255,7 @@ def _plot_ms1_isotope_dist(ms1_i_mz, ms1_i_int, mz_targets, abun_targets, peak_m
     img : ``bytes``
         png image of plot as bytes
     """
-    rcParams['font.size'] = 10
+    rcParams['font.size'] = 6
     fig = plt.figure(figsize=(6.25, 1.5))
     ax = fig.add_subplot()
     ax.plot(ms1_i_mz, ms1_i_int, ls='-', c='#777777', zorder=-2, lw=1.5)
@@ -271,7 +272,7 @@ def _plot_ms1_isotope_dist(ms1_i_mz, ms1_i_int, mz_targets, abun_targets, peak_m
     ax.set_ylabel('intensity')
     ax.ticklabel_format(axis='y', style='sci', scilimits=(0, 0))
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+    plt.savefig(buf, format='png', dpi=250, bbox_inches='tight')
     buf.seek(0)
     plt.close()
     img = buf.read()
@@ -313,9 +314,13 @@ def _calc_cosine_from_recon_spectrum(ms1_i_mz, ms1_i_int, target_mz, target_abun
 def _calc_cosine_from_xic(pre_xic_rt, pre_xic_int, frg_xic_rt, frg_xic_int):
     """
     """
-    # lerp both signals to ensure the same sampling (400 points/min)
-    pre_xic_i_rt, pre_xic_i_int = lerp_1d(pre_xic_rt, pre_xic_int, min(pre_xic_rt), max(pre_xic_rt), 200)
-    frg_xic_i_rt, frg_xic_i_int = lerp_1d(frg_xic_rt, frg_xic_int, min(pre_xic_rt), max(pre_xic_rt), 200)
+    # lerp both signals to ensure the same sampling (200 points/min)
+    _, pre_xic_i_int = lerp_1d(pre_xic_rt, pre_xic_int, min(pre_xic_rt), max(pre_xic_rt), 200)
+    _, frg_xic_i_int = lerp_1d(frg_xic_rt, frg_xic_int, min(pre_xic_rt), max(pre_xic_rt), 200)
+    # make sure that both XICs have some points above 0
+    # if not, then just return cosine distance of 1
+    if sum(pre_xic_i_int) == 0 or sum(frg_xic_i_int) == 0:
+        return 1. 
     # normalize both signals
     pre_xic_i_int /= max(pre_xic_i_int)
     frg_xic_i_int /= max(frg_xic_i_int)
@@ -432,11 +437,14 @@ def _do_fragment_scoring(oz_data, fragment, formula,
     target_mz, target_abun = predict_m_m1_m2(formula)
     # get XIC using fragment m/z +/- mz_tol and RT bounds from the precursor peak
     mz_min, mz_max = target_mz[0] - mz_tol, target_mz[0] + mz_tol
-    rtb = (pre_rt - pre_wt / 2, pre_rt + pre_wt / 2) 
-    xic = oz_data.collect_xic_arrays_by_mz(mz_min, mz_max)  #, rt_bounds=rtb)
-    if (pre_scoring := _extract_ms1_and_calc_isotope_score(oz_data, target_mz, target_abun, 
-                                                            *rtb, ms1_fit_method, 
-                                                            debug_flag, debug_cb)) is not None:
+    # RT range for extracting XIC (precursor RT +/- FWHM x4)
+    xic_rtb = (pre_rt - pre_wt * 4, pre_rt + pre_wt * 4) 
+    # RT range for extracting MS1 (precursor RT +/- FWHM /2)
+    ms1_rtb = (pre_rt - pre_wt / 2, pre_rt + pre_wt / 2) 
+    xic = oz_data.collect_xic_arrays_by_mz(mz_min, mz_max, rt_bounds=xic_rtb)
+    if sum(xic[1]) > 0 and (pre_scoring := _extract_ms1_and_calc_isotope_score(oz_data, target_mz, target_abun, 
+                                                                               *ms1_rtb, ms1_fit_method, 
+                                                                               debug_flag, debug_cb)) is not None:
         # unpack and add into results
         (mz_ppm, abun_pct, mz_cos_dist), iso_dist_img = pre_scoring
         # determine the XIC comparison range based on peak width (+/- FWHM x3)
@@ -446,7 +454,7 @@ def _do_fragment_scoring(oz_data, fragment, formula,
             'target_mz': target_mz[0],
             'target_rt': None,              # * no longer doing XIC peak fitting for fragments
             'xic_peak_rt': None,            # * 
-            'xic_peak_ht': max(xic[1][(xic[0] >= rtb[0]) & (xic[0] <= rtb[1])]),
+            'xic_peak_ht': max(xic[1][(xic[0] >= ms1_rtb[0]) & (xic[0] <= ms1_rtb[1])]),
             'xic_peak_fwhm': None,          # *
             'mz_ppm': mz_ppm,               
             'abun_percent': abun_pct,
