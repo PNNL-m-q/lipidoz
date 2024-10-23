@@ -329,11 +329,13 @@ class ResultsWindow():
         sel = self.menu_frm_tv.selection()
         sel_idx = int(sel[0]) if len(sel) > 0 else -1
         if sel_idx in self._tree_leaf_nodes:
+            # an individual DB position result is selected
             sel_idx_info = self._tree_leaf_nodes[sel_idx]
             # update the plots page with the results from the selection
             self._populate_plots_frame(sel_idx_info)
             self._update_scores(sel_idx_info)
         else:
+            # an intermediate value is selected
             # clear the selection
             self._clear_plots_frame()
             self._clear_scores()
@@ -361,8 +363,22 @@ class ResultsWindow():
         """
         add plots to the plot frame from the results corresponding to indexing info
         """
+        # NOTE: It is possible for ald_data to not be None but one (or both?) of the actual XIC or 
+        #       isotope distribution images to be None. In such cases, simply checking whether 
+        #       ald_data is None causes an attempt to load the None as an image which leads to weird
+        #       behavior where the images do not clear fully when switching between targets. The
+        #       same applies for crg_data. The solution is two part: (1) always clear out all of 
+        #       the plots at the beginning of this method and (2) add a second layer of checking 
+        #       within each of the blocks that deal with populating plots from the ald_data or
+        #       crg_data.
+        # clear out any existing plots
+        self._clear_plots_frame()
+        print(idx_info)
         # indexing information
         lipid, adduct, rt, db_idx, db_pos = idx_info
+        # TODO: Perform some indexing here at the top for the precursor section and the 
+        #       selected fragment section to avoid these long repetitive multi-part 
+        #       indexing operations to grab different pieces of information to display.
         # fetch precursor image data
         resample = Image.BICUBIC
         img_data = self.results['targets'][lipid][adduct][rt]['precursor']['xic_fit_img']
@@ -379,44 +395,41 @@ class ResultsWindow():
         self.plots_frm_pre_isodist_img = ImageTk.PhotoImage(self.pre_isodist_img.resize((self.iwt, self.ht), resample))
         self.plots_frm_pre_isodist.create_image(0, 0, anchor=NW, image=self.plots_frm_pre_isodist_img)
         # fetch aldehyde image data (if present)
-        ald_data = self.results['targets'][lipid][adduct][rt]['fragments'][db_idx][db_pos]['aldehyde']
-        if ald_data is not None:
-            self.ald_xic_img = Image.open(io.BytesIO(ald_data['xic_fit_img']))
-            self.plots_frm_ald_xic_img = ImageTk.PhotoImage(self.ald_xic_img.resize((self.xwt, self.ht), resample))
-            self.plots_frm_ald_xic.create_image(0, 0, anchor=NW, image=self.plots_frm_ald_xic_img)
-            if ald_data['saturation_corrected']:
-                # make an image to annotate precursor if saturation was corrected
-                self.ald_sat_corr_img = ImageTk.PhotoImage(Image.new('RGB', (20, 20), SAT_CORR_COLOR))
-                self.plots_frm_ald_xic.create_image(0, 0, image=self.ald_sat_corr_img)
-            self.plots_frm_pre_xic.create_image(0, 0, image=self.pre_sat_corr_img)
-            self.ald_isodist_img = Image.open(io.BytesIO(ald_data['isotope_dist_img']))
-            self.plots_frm_ald_isodist_img = ImageTk.PhotoImage(self.ald_isodist_img.resize((self.iwt, self.ht), resample))
-            self.plots_frm_ald_isodist.create_image(0, 0, anchor=NW, image=self.plots_frm_ald_isodist_img)
-        else:
-            self.ald_xic_img = None
-            self.ald_sat_corr_img = None
-            self.ald_isodist_img = None
-            self.plots_frm_ald_xic_img = None
-            self.plots_frm_ald_isodist_img = None
+        if (ald_data := self.results['targets'][lipid][adduct][rt]['fragments'][db_idx][db_pos]['aldehyde']) is not None:
+            # XIC
+            if (xic_img := ald_data["xic_fit_img"]) is not None:
+                print(f"aldehyde xic_fit_img: {xic_img[:16]}...")
+                self.ald_xic_img = Image.open(io.BytesIO(xic_img))
+                self.plots_frm_ald_xic_img = ImageTk.PhotoImage(self.ald_xic_img.resize((self.xwt, self.ht), resample))
+                self.plots_frm_ald_xic.create_image(0, 0, anchor=NW, image=self.plots_frm_ald_xic_img)
+                if ald_data['saturation_corrected']:
+                    # make an image to annotate precursor if saturation was corrected
+                    self.ald_sat_corr_img = ImageTk.PhotoImage(Image.new('RGB', (20, 20), SAT_CORR_COLOR))
+                    self.plots_frm_ald_xic.create_image(0, 0, image=self.ald_sat_corr_img)
+            # isotope distribution
+            if (iso_img := ald_data["isotope_dist_img"]) is not None:
+                print(f"aldehyde isotope_dist_img: {iso_img[:16]}...")
+                self.ald_isodist_img = Image.open(io.BytesIO(iso_img))
+                self.plots_frm_ald_isodist_img = ImageTk.PhotoImage(self.ald_isodist_img.resize((self.iwt, self.ht), resample))
+                self.plots_frm_ald_isodist.create_image(0, 0, anchor=NW, image=self.plots_frm_ald_isodist_img)
         # fetch criegee image data (if present)
-        crg_data = self.results['targets'][lipid][adduct][rt]['fragments'][db_idx][db_pos]['criegee']
-        if crg_data is not None:
-            self.crg_xic_img = Image.open(io.BytesIO(crg_data['xic_fit_img']))
-            self.plots_frm_crg_xic_img = ImageTk.PhotoImage(self.crg_xic_img.resize((self.xwt, self.ht), resample))
-            self.plots_frm_crg_xic.create_image(0, 0, anchor=NW, image=self.plots_frm_crg_xic_img)
-            if crg_data['saturation_corrected']:
-                # make an image to annotate precursor if saturation was corrected
-                self.crg_sat_corr_img = ImageTk.PhotoImage(Image.new('RGB', (20, 20), SAT_CORR_COLOR))
-                self.plots_frm_crg_xic.create_image(0, 0, image=self.crg_sat_corr_img)
-            self.crg_isodist_img = Image.open(io.BytesIO(crg_data['isotope_dist_img']))
-            self.plots_frm_crg_isodist_img = ImageTk.PhotoImage(self.crg_isodist_img.resize((self.iwt, self.ht), resample))
-            self.plots_frm_crg_isodist.create_image(0, 0, anchor=NW, image=self.plots_frm_crg_isodist_img)
-        else:
-            self.crg_xic_img = None
-            self.crg_sat_corr_img = None
-            self.crg_isodist_img = None
-            self.plots_frm_crg_xic_img = None
-            self.plots_frm_crg_isodist_img = None
+        if (crg_data := self.results['targets'][lipid][adduct][rt]['fragments'][db_idx][db_pos]['criegee']) is not None:
+            # XIC
+            if (xic_img := crg_data["xic_fit_img"]) is not None:
+                print(f"criegee xic_fit_img: {xic_img[:16]}...")
+                self.crg_xic_img = Image.open(io.BytesIO(xic_img))
+                self.plots_frm_crg_xic_img = ImageTk.PhotoImage(self.crg_xic_img.resize((self.xwt, self.ht), resample))
+                self.plots_frm_crg_xic.create_image(0, 0, anchor=NW, image=self.plots_frm_crg_xic_img)
+                if crg_data['saturation_corrected']:
+                    # make an image to annotate precursor if saturation was corrected
+                    self.crg_sat_corr_img = ImageTk.PhotoImage(Image.new('RGB', (20, 20), SAT_CORR_COLOR))
+                    self.plots_frm_crg_xic.create_image(0, 0, image=self.crg_sat_corr_img)
+            # isotope distribution    
+            if (iso_img := crg_data["isotope_dist_img"]) is not None:
+                print(f"criegee isotope_dist_img: {iso_img[:16]}...")
+                self.crg_isodist_img = Image.open(io.BytesIO(iso_img))
+                self.plots_frm_crg_isodist_img = ImageTk.PhotoImage(self.crg_isodist_img.resize((self.iwt, self.ht), resample))
+                self.plots_frm_crg_isodist.create_image(0, 0, anchor=NW, image=self.plots_frm_crg_isodist_img)
 
     def _clear_plots_frame(self):
         """
