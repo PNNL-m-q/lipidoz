@@ -18,6 +18,7 @@ Dylan Ross (dylan.ross@pnnl.gov)
 
 import os
 import pickle
+import gzip
 from tempfile import TemporaryDirectory
 
 import numpy as np
@@ -677,7 +678,8 @@ def run_isotope_scoring_workflow_infusion(oz_data_file, target_list_file, mz_tol
 
 def save_isotope_scoring_results(isotope_scoring_results, results_file_name):
     """
-    save the results of the isotope scoring workflow (complete with metadata) to file in pickle format
+    save the results of the isotope scoring workflow (complete with metadata) to file 
+    in gzipped pickle format
 
     Parameters
     ----------
@@ -694,13 +696,13 @@ def save_isotope_scoring_results(isotope_scoring_results, results_file_name):
         raise ValueError(msg.format(ext_should_be, ext))
     # check if file exists
     if os.path.isfile(results_file_name):
-        with open(results_file_name, "rb") as pf:
-            all_results = pickle.load(pf)
+        with gzip.open(results_file_name, "rb") as gzf:
+            all_results = pickle.load(gzf)
     else:
         all_results = new_lipidoz_results()
     all_results["isotope_scoring_results"] = isotope_scoring_results
-    with open(results_file_name, 'wb') as pf:
-        pickle.dump(all_results, pf)
+    with gzip.open(results_file_name, "wb") as gzf:
+        pickle.dump(all_results, gzf)
 
 
 def _write_metadata_to_sheet(metadata, workbook):
