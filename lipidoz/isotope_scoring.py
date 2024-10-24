@@ -680,7 +680,15 @@ def score_db_pos_isotope_dist_polyunsat(oz_data, precursor_formula, fa_nc, fa_nu
                                                    mz_tol, ms1_fit_method,
                                                    peak_rt, peak_wt, *pre_xic, 
                                                    debug_flag, debug_cb)
-                results['fragments'][db_idx][db_pos]['aldehyde'] = ald_results
+                # NOTE: There is no use keeping fragment results that are incomplete (i.e., no
+                #       XIC fit image or no isotope distribution image)
+                ald_results = ald_results if (ald_results is not None
+                                              and ald_results["isotope_dist_img"] is not None 
+                                              and ald_results["xic_fit_img"] is not None) else None
+                crg_results = crg_results if (crg_results is not None
+                                              and crg_results["isotope_dist_img"] is not None 
+                                              and crg_results["xic_fit_img"] is not None) else None
+                results['fragments'][db_idx][db_pos]['aldehyde'] = ald_results 
                 results['fragments'][db_idx][db_pos]['criegee'] = crg_results
                 if info_cb is not None:
                     msg = f"INFO: {i + 1} of {n_combos} done"
