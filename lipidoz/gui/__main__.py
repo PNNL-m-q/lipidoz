@@ -7,6 +7,12 @@ Dylan Ross (dylan.ross@pnnl.gov)
 """
 
 
+# TODO: Add a couple CLI args to change hoe the app starts. In particular, 
+#       it would be nice to have a --view [results.loz] option to directly 
+#       load the results viewer for a specified results file without going 
+#       through the startup window and file chooser. 
+
+
 from lipidoz.gui.app import LOzApp
 
 

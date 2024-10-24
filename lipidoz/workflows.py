@@ -18,6 +18,7 @@ Dylan Ross (dylan.ross@pnnl.gov)
 
 import os
 import pickle
+import gzip
 from tempfile import TemporaryDirectory
 
 import numpy as np
@@ -101,6 +102,63 @@ def _load_target_list(target_list_file, ignore_preferred_ionization, rt_correcti
     if rt_correction_func is not None:
         rts = [rt_correction_func(_) for _ in rts]
     return target_lipids, adducts, rts
+
+
+def _load_target_list_alt(target_list_file, ignore_preferred_ionization=True):
+    """
+    loads target list from .csv file, performs some basic validation
+    Exceptions raised in this function happen before MZA is initialized which is better than having
+    them raised while it is initialized (the IO threads can complicate things), so as much parameter
+    validation should be done here as possible
+
+    .. note:: 
+
+        Target retention times are no longer taken from the target list. The RTs for precursors
+        now just come directly from fits on the XICs. To maintain compatibility (and for reference
+        when interpreting the results), retention times are still included in the target list, but
+        any duplicates (_i.e._, same target lipid but different target RT) get removed in this
+        function before returning lists of target lipids.
+
+
+    Parameters
+    ----------
+    target_list_file : ``str``
+        filename and path for target list (.csv format)
+    ignore_preferred_ionization : ``bool``, default=True
+        whether to ignore cases where a lipid/adduct combination violates the lipid class' preferred ionization state
+
+    Returns
+    -------
+    target_lipids : ``list(pyliquid.lipids.LipidWithChains)``
+        target lipids as ``pyliquid.lipids.LipidWithChains``
+    target_adducts : ``list(str)``
+        MS adducts of target lipids
+    """
+    names, adducts, rts = np.loadtxt(target_list_file, dtype=str, delimiter=',', skiprows=1, 
+                                     unpack=True, comments='#', ndmin=2)
+    # remove duplicate entries from the target list (by ignoring RT)
+    target_lipids = [parse_lipid_name(name) for name in names]
+    adducts = [adduct for adduct in adducts]
+    # perform as much input validation as possible ahead of time
+    for i, (name, lipid, adduct) in enumerate(zip(names, target_lipids, adducts)):
+        line = i + 2
+        if lipid is None:
+            msg = '_load_target_list: name "{}" was not able to be parsed as lipid (line: {})'
+            raise ValueError(msg.format(name, line))
+        if lipid.__class__.__name__ != 'LipidWithChains':
+            msg = ('_load_target_list: lipid {} has more than 1 acyl chain ({}) but individual chain compositions'
+                   ' were not provided (line: {})')
+            raise ValueError(msg.format(name, lipid.n_chains, line))
+        if not valid_ms_adduct(adduct):
+            msg = '_load_target_list: {} is not a recognized MS adduct (line: {})'
+            raise ValueError(msg.format(adduct, line))
+        if ((adduct[-1] == '+' and lipid.ionization not in ['both', 'pos']) 
+            or (adduct[-1] == '-' and lipid.ionization not in ['both', 'neg'])):
+            if not ignore_preferred_ionization:
+                msg = '_load_target_list: lipid {} ionization is {} but adduct was {} (line: {})'
+                raise ValueError(msg.format(name, lipid.ionization, adduct, line))
+    # only return unique (lipid, adduct) combinations
+    return map(list, zip(*set([(lpd, adduct) for lpd, adduct in zip(target_lipids, adducts)])))
 
 
 def _load_target_list_targeted(target_list_file, ignore_preferred_ionization, rt_correction_func):
@@ -209,10 +267,9 @@ def _load_target_list_infusion(target_list_file, ignore_preferred_ionization):
     return target_lipids, adducts
 
 
-def run_isotope_scoring_workflow(oz_data_file, target_list_file, rt_tol, rt_peak_win, mz_tol, 
+def run_isotope_scoring_workflow(oz_data_file, target_list_file, mz_tol, 
                                  d_label=None, d_label_in_nl=None, progress_cb=None, info_cb=None, 
-                                 early_stop_event=None, debug_flag=None, debug_cb=None, rt_correction_func=None, 
-                                 ignore_preferred_ionization=True):
+                                 early_stop_event=None, debug_flag=None, debug_cb=None):
     """
     workflow for performing isotope scoring for the determination of db positions. 
     inputs are the data file and target list file, output is a dictionary containing metadata about the analysis and
@@ -280,8 +337,8 @@ def run_isotope_scoring_workflow(oz_data_file, target_list_file, rt_tol, rt_peak
             'lipidoz_version': VER,
             'oz_data_file': oz_data_file,
             'target_list_file': target_list_file, 
-            'rt_tol': rt_tol, 
-            'rt_peak_win': rt_peak_win, 
+            'rt_tol': None, 
+            'rt_peak_win': None, 
             'mz_tol': mz_tol,
             'd_label': d_label, 
             'd_label_in_nl': d_label_in_nl,
@@ -289,15 +346,13 @@ def run_isotope_scoring_workflow(oz_data_file, target_list_file, rt_tol, rt_peak
         'targets': {},
     }
     # load the target list
-    target_lipids, target_adducts, target_rts = _load_target_list(target_list_file, 
-                                                                  ignore_preferred_ionization, 
-                                                                  rt_correction_func)
+    target_lipids, target_adducts = _load_target_list_alt(target_list_file)
     n = len(target_lipids)
     if info_cb is not None:
         msg = 'INFO: loaded target list: {} ({} targets)'.format(target_list_file, n)
         info_cb(msg)
     # load the data 
-    oz_data = CustomUReader(oz_data_file, 4)
+    oz_data = CustomUReader(oz_data_file)
     if info_cb is not None:
         msg = "INFO: loading OzID data file ..."
         info_cb(msg)
@@ -308,7 +363,9 @@ def run_isotope_scoring_workflow(oz_data_file, target_list_file, rt_tol, rt_peak
         info_cb(msg)
     # main data processing
     i = 1
-    for tlipid, tadduct, trt in zip(target_lipids, target_adducts, target_rts):
+    for tlipid, tadduct in sorted(zip(target_lipids, target_adducts), 
+                                  key=lambda x: str(x[0])):
+        lpd_str = str(tlipid)
         # check for a stop event
         if early_stop_event is not None and early_stop_event.is_set():
             if info_cb is not None and debug_flag is None:  # avoid duplication of messages
@@ -327,25 +384,26 @@ def run_isotope_scoring_workflow(oz_data_file, target_list_file, rt_tol, rt_peak
         remove_d = d_label if ((d_label is not None) and d_label_in_nl) else None
         adduct_formula = ms_adduct_formula(tlipid.formula, tadduct)
         # run the analysis for individual lipid species
-        msg = '\n' + str(tlipid) + ' ' + tadduct + '\n=========================='
+        msg = f"\n{lpd_str} {tadduct}\n=========================="
         _debug_handler(debug_flag, debug_cb, msg=msg)
-        lipid_result = score_db_pos_isotope_dist_polyunsat(oz_data, adduct_formula, tlipid.fa_carbon_chains, 
-                                                           tlipid.fa_unsat_chains, trt, rt_tol, 
-                                                           rt_peak_win, mz_tol, remove_d=remove_d, 
-                                                           debug_flag=debug_flag, debug_cb=debug_cb, info_cb=info_cb,
-                                                           early_stop_event=early_stop_event)
-        # add individual result to full results
-        rt_str = '{:.2f}min'.format(trt)
-        if str(tlipid) in results['targets']:
-            if tadduct in results['targets'][str(tlipid)]:
-                results['targets'][str(tlipid)][tadduct][rt_str] = lipid_result
+        for lipid_result in score_db_pos_isotope_dist_polyunsat(oz_data, adduct_formula, tlipid.fa_carbon_chains, 
+                                                                tlipid.fa_unsat_chains, 
+                                                                mz_tol, remove_d=remove_d, 
+                                                                debug_flag=debug_flag, debug_cb=debug_cb, 
+                                                                info_cb=info_cb,
+                                                                early_stop_event=early_stop_event):
+            # add individual result to full results
+            rt_str = f"{lipid_result["precursor"]["xic_peak_rt"]:.2f}min"
+            if lpd_str in results['targets']:
+                if tadduct in results['targets'][lpd_str]:
+                    results['targets'][lpd_str][tadduct][rt_str] = lipid_result
+                else:
+                    results['targets'][lpd_str][tadduct] = {rt_str: lipid_result}
             else:
-                results['targets'][str(tlipid)][tadduct] = {rt_str: lipid_result}
-        else:
-            results['targets'][str(tlipid)] = {tadduct: {rt_str: lipid_result}}
+                results['targets'][lpd_str] = {tadduct: {rt_str: lipid_result}}
         # call progress callback function if provided
         if progress_cb is not None:
-            progress_cb(str(tlipid), tadduct, i, n)
+            progress_cb(lpd_str, tadduct, i, n)
             i += 1
     # clean up
     oz_data.close()
@@ -620,7 +678,8 @@ def run_isotope_scoring_workflow_infusion(oz_data_file, target_list_file, mz_tol
 
 def save_isotope_scoring_results(isotope_scoring_results, results_file_name):
     """
-    save the results of the isotope scoring workflow (complete with metadata) to file in pickle format
+    save the results of the isotope scoring workflow (complete with metadata) to file 
+    in gzipped pickle format
 
     Parameters
     ----------
@@ -637,13 +696,13 @@ def save_isotope_scoring_results(isotope_scoring_results, results_file_name):
         raise ValueError(msg.format(ext_should_be, ext))
     # check if file exists
     if os.path.isfile(results_file_name):
-        with pickle.load(results_file_name, "rb") as pf:
-            all_results = pickle.load(pf)
+        with gzip.open(results_file_name, "rb") as gzf:
+            all_results = pickle.load(gzf)
     else:
         all_results = new_lipidoz_results()
-        all_results["isotope_scoring_results"] = isotope_scoring_results
-    with open(results_file_name, 'wb') as pf:
-        pickle.dump(all_results, pf)
+    all_results["isotope_scoring_results"] = isotope_scoring_results
+    with gzip.open(results_file_name, "wb") as gzf:
+        pickle.dump(all_results, gzf)
 
 
 def _write_metadata_to_sheet(metadata, workbook):

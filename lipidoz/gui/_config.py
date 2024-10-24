@@ -27,7 +27,7 @@ MS1_PLOT_WIDTH = int(3.00 * PLOT_HEIGHT)
 
 
 # color for saturation correction symbol on XICs
-SAT_CORR_COLOR = (200, 200, 0)
+SAT_CORR_COLOR = (255, 0, 0)
 
 
 # set the application icon path

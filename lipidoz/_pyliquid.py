@@ -1420,6 +1420,15 @@ class Lipid():
         s = '{}({}{}:{})'
         return s.format(self.lipid_class_abbrev, self.fa_mod, self.fa_carbon, self.fa_unsat)
 
+    def __eq__(self, other):
+        return self.__repr__() == other.__repr__()
+        
+    def __ne__(self, other):
+        return (not self.__eq__(other))
+    
+    def __hash__(self):
+        return hash(self.__repr__())
+
 
 class LipidWithChains(Lipid):
     """

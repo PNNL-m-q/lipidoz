@@ -261,35 +261,27 @@ class ResultsWindow():
             self.menu_frm_tv.delete(i)
         # map iid to tuples with all the indexing information for all leaf nodes in the menu
         self._tree_leaf_nodes = {}
-        # map leaf nodes to their container db_idx
-        self._leaf_node_container_dbidx = {}
         # map sets of square images to idbidx
         self._tree_square_imgs = {}
-        i = 0
+        # build the tree
         for lipid in self.results['targets']:
-            self.menu_frm_tv.insert('', END, text=lipid, iid=i, open=False)
-            ilipid = i
+            ilipid = self.menu_frm_tv.insert('', END, text=f"{lipid}", open=False)
             ilipid_children = 0
-            i += 1
             for adduct in self.results['targets'][lipid]:
-                self.menu_frm_tv.insert('', END, text=adduct, iid=i, open=False)
-                iadduct = i
+                iadduct = self.menu_frm_tv.insert("", END, text=f"{adduct}", open=False)
                 iadduct_children = 0
-                i += 1
-                self.menu_frm_tv.move(iadduct, ilipid, ilipid_children)
                 ilipid_children += 1
+                self.menu_frm_tv.move(iadduct, ilipid, ilipid_children)
                 for rt in self.results['targets'][lipid][adduct]:
                     if self.results['targets'][lipid][adduct][rt] is not None:
-                        self.menu_frm_tv.insert('', END, text=rt, iid=i, open=False)
-                        irt = i
+                        irt = self.menu_frm_tv.insert('', END, text=f"{rt}", open=False)
                         irt_children = 0
-                        i += 1
+                        iadduct_children += 1
                         self.menu_frm_tv.move(irt, iadduct, iadduct_children)
                         for db_idx in self.results['targets'][lipid][adduct][rt]['fragments']:
-                            self.menu_frm_tv.insert('', END, text='db_idx={}'.format(db_idx), iid=i, open=False)
-                            idbidx = i
+                            idbidx = self.menu_frm_tv.insert("", END, text=f"{db_idx=}", open=False)
                             idbidx_children = 0
-                            i += 1
+                            irt_children += 1
                             self.menu_frm_tv.move(idbidx, irt, irt_children)
                             # sort by ascending composite score
                             db_posns = [_ for _ in self.results['targets'][lipid][adduct][rt]['fragments'][db_idx].keys()]
@@ -300,16 +292,14 @@ class ResultsWindow():
                                 fragment_data = self.results['targets'][lipid][adduct][rt]['fragments'][db_idx][db_pos]
                                 if fragment_data['aldehyde'] is not None or fragment_data['criegee'] is not None:
                                     # only add entries when there is actual data to look at
-                                    self.menu_frm_tv.insert('', END, text='db_pos={:<2d}'.format(db_pos), iid=i, 
-                                                            open=False,
-                                                            image=self._tree_square_imgs[idbidx][sort_i])
-                                    idbpos = i
-                                    i += 1
+                                    idbpos = self.menu_frm_tv.insert("", END, text=f"{db_pos=:<2d}",
+                                                                     open=False,
+                                                                     image=self._tree_square_imgs[idbidx][sort_i])
+                                    idbidx_children += 1
                                     self.menu_frm_tv.move(idbpos, idbidx, idbidx_children)
                                     # add an entry to self._tree_leaf_nodes
                                     idx_info = (lipid, adduct, rt, db_idx, db_pos)
                                     self._tree_leaf_nodes[idbpos] = idx_info
-                                    self._leaf_node_container_dbidx[idbpos] = idbidx
 
     def _gen_colored_square_imgs(self, comp_scores, idbidx):
         """ """
@@ -326,43 +316,111 @@ class ResultsWindow():
         """
         callback that gets called whenever the selection on the tree menu changes
         """
-        sel = self.menu_frm_tv.selection()
-        sel_idx = int(sel[0]) if len(sel) > 0 else -1
-        if sel_idx in self._tree_leaf_nodes:
-            sel_idx_info = self._tree_leaf_nodes[sel_idx]
-            # update the plots page with the results from the selection
-            self._populate_plots_frame(sel_idx_info)
-            self._update_scores(sel_idx_info)
-        else:
-            # clear the selection
-            self._clear_plots_frame()
-            self._clear_scores()
+        if len(sel := self.menu_frm_tv.selection()) == 1:
+            sel_idx = sel[0]   
+            if sel_idx in self._tree_leaf_nodes:
+                # an individual DB position result is selected
+                sel_idx_info = self._tree_leaf_nodes[sel_idx]
+                # update the plots page with the results from the selection
+                self._populate_plots_frame(sel_idx_info)
+                self._update_scores(sel_idx_info)
+            else:
+                # an intermediate value is selected
+                # clear the display
+                self._clear_plots_frame()
+                self._clear_scores()
+
+    def _tv_get_sib_or_parent_idx(self, idx):
+        """ get index of a sibling node or parent node if there are no siblings """
+        if (sib_idx := self.menu_frm_tv.prev(idx)) != "":
+            return sib_idx
+        if (sib_idx := self.menu_frm_tv.next(idx)) != "":
+            return sib_idx
+        return self.menu_frm_tv.parent(idx)
+
+    def _tv_focus_and_select(self, idx):
+        """ move focus and selection to specified index in TreeView """
+        self.menu_frm_tv.focus(idx)
+        self.menu_frm_tv.selection_set(idx)
+    
+    def _tv_move_up_and_detach_old_level(self, sel_idx):
+        """ move focus one level up and detach the old lower level """
+        old_idx = sel_idx
+        sel_idx = self.menu_frm_tv.parent(old_idx)
+        self._tv_focus_and_select(sel_idx)
+        # now detach the old level
+        self.menu_frm_tv.detach(old_idx)
+        # return the new selection index (one level up)
+        return sel_idx
 
     def _tree_item_delete_cb(self, event):
         """
-        callback that gets called 
+        callback that gets called when delete key pressed
         """
-        sel_idx = int(self.menu_frm_tv.selection()[0])
-        if sel_idx in self._tree_leaf_nodes:
-            sel_idx_info = self._tree_leaf_nodes[sel_idx]
-            lipid, adduct, rt, db_idx, db_pos = sel_idx_info
-            self.menu_frm_tv.detach(sel_idx)
-            # move focus back to the db_idx level and select it
-            self.menu_frm_tv.focus([self._leaf_node_container_dbidx[sel_idx]])
-            self.menu_frm_tv.selection_set([self._leaf_node_container_dbidx[sel_idx]])  
-            # remove the selected entry from results
-            self.results['targets'][lipid][adduct][rt]['fragments'][db_idx].pop(db_pos)
-            # TODO (Dylan Ross): this leaves hanging sections in the results where there is an empty dict under the
-            #                    db_idx if the db_pos entry that was just removed happened to be the last one. Ideally
-            #                    the results dict would be fully pruned back to exclude any such empty nodes and the 
-            #                    treeview menu would also have the corresponding entries detached
+        # TODO: Delete other nodes besides leaf nodes?
+        if len(sel := self.menu_frm_tv.selection()) == 1:
+            sel_idx = sel[0]
+            if sel_idx in self._tree_leaf_nodes:
+                # the selected node is a leaf node
+                sel_idx_info = self._tree_leaf_nodes[sel_idx]
+                lipid, adduct, rt, db_idx, db_pos = sel_idx_info
+                # move focus to another sibling and select it
+                old_idx = sel_idx
+                sel_idx = self._tv_get_sib_or_parent_idx(old_idx)
+                self._tv_focus_and_select(sel_idx)
+                self.menu_frm_tv.detach(old_idx)
+                # remove the selected entry from results
+                self.results['targets'][lipid][adduct][rt]['fragments'][db_idx].pop(db_pos)
+                # run checks to see if we need to prune back 
+                # prune to db_idx level
+                if self.results["targets"][lipid][adduct][rt]["fragments"][db_idx] == {}:
+                    self.results["targets"][lipid][adduct][rt]["fragments"].pop(db_idx)
+                    # after the previous leaf node was removed above, the sel_idx should have
+                    # been moved to the container db_idx index. Move focus one level up and 
+                    # delete the previous level
+                    sel_idx = self._tv_move_up_and_detach_old_level(sel_idx)
+                # prune to RT level
+                if self.results["targets"][lipid][adduct][rt]["fragments"] == {}:
+                    self.results["targets"][lipid][adduct].pop(rt)
+                    # after the previous level was removed, the sel_idx should have 
+                    # been moved to the container RT level. Move focus one level up and 
+                    # delete the previous level
+                    sel_idx = self._tv_move_up_and_detach_old_level(sel_idx)
+                # prune to adduct level
+                if self.results["targets"][lipid][adduct] == {}:
+                    self.results["targets"][lipid].pop(adduct)
+                    # after the previous level was removed, the sel_idx should have 
+                    # been moved to the container adduct level. Move focus one level up and 
+                    # delete the previous level
+                    sel_idx = self._tv_move_up_and_detach_old_level(sel_idx)
+                # prune to lipid level
+                if self.results["targets"][lipid] == {}:
+                    self.results["targets"].pop(lipid)
+                    # after the previous level was removed, the sel_idx should have 
+                    # been moved to the container lipid level. Move focus one level up and 
+                    # delete the previous level
+                    sel_idx = self._tv_move_up_and_detach_old_level(sel_idx)
+            # else: the selected node was an intermediate level
 
     def _populate_plots_frame(self, idx_info):
         """
         add plots to the plot frame from the results corresponding to indexing info
         """
+        # NOTE: It is possible for ald_data to not be None but one (or both?) of the actual XIC or 
+        #       isotope distribution images to be None. In such cases, simply checking whether 
+        #       ald_data is None causes an attempt to load the None as an image which leads to weird
+        #       behavior where the images do not clear fully when switching between targets. The
+        #       same applies for crg_data. The solution is two part: (1) always clear out all of 
+        #       the plots at the beginning of this method and (2) add a second layer of checking 
+        #       within each of the blocks that deal with populating plots from the ald_data or
+        #       crg_data.
+        # clear out any existing plots
+        self._clear_plots_frame()
         # indexing information
         lipid, adduct, rt, db_idx, db_pos = idx_info
+        # TODO: Perform some indexing here at the top for the precursor section and the 
+        #       selected fragment section to avoid these long repetitive multi-part 
+        #       indexing operations to grab different pieces of information to display.
         # fetch precursor image data
         resample = Image.BICUBIC
         img_data = self.results['targets'][lipid][adduct][rt]['precursor']['xic_fit_img']
@@ -379,44 +437,37 @@ class ResultsWindow():
         self.plots_frm_pre_isodist_img = ImageTk.PhotoImage(self.pre_isodist_img.resize((self.iwt, self.ht), resample))
         self.plots_frm_pre_isodist.create_image(0, 0, anchor=NW, image=self.plots_frm_pre_isodist_img)
         # fetch aldehyde image data (if present)
-        ald_data = self.results['targets'][lipid][adduct][rt]['fragments'][db_idx][db_pos]['aldehyde']
-        if ald_data is not None:
-            self.ald_xic_img = Image.open(io.BytesIO(ald_data['xic_fit_img']))
-            self.plots_frm_ald_xic_img = ImageTk.PhotoImage(self.ald_xic_img.resize((self.xwt, self.ht), resample))
-            self.plots_frm_ald_xic.create_image(0, 0, anchor=NW, image=self.plots_frm_ald_xic_img)
-            if ald_data['saturation_corrected']:
-                # make an image to annotate precursor if saturation was corrected
-                self.ald_sat_corr_img = ImageTk.PhotoImage(Image.new('RGB', (20, 20), SAT_CORR_COLOR))
-                self.plots_frm_ald_xic.create_image(0, 0, image=self.ald_sat_corr_img)
-            self.plots_frm_pre_xic.create_image(0, 0, image=self.pre_sat_corr_img)
-            self.ald_isodist_img = Image.open(io.BytesIO(ald_data['isotope_dist_img']))
-            self.plots_frm_ald_isodist_img = ImageTk.PhotoImage(self.ald_isodist_img.resize((self.iwt, self.ht), resample))
-            self.plots_frm_ald_isodist.create_image(0, 0, anchor=NW, image=self.plots_frm_ald_isodist_img)
-        else:
-            self.ald_xic_img = None
-            self.ald_sat_corr_img = None
-            self.ald_isodist_img = None
-            self.plots_frm_ald_xic_img = None
-            self.plots_frm_ald_isodist_img = None
+        if (ald_data := self.results['targets'][lipid][adduct][rt]['fragments'][db_idx][db_pos]['aldehyde']) is not None:
+            # XIC
+            if (xic_img := ald_data["xic_fit_img"]) is not None:
+                self.ald_xic_img = Image.open(io.BytesIO(xic_img))
+                self.plots_frm_ald_xic_img = ImageTk.PhotoImage(self.ald_xic_img.resize((self.xwt, self.ht), resample))
+                self.plots_frm_ald_xic.create_image(0, 0, anchor=NW, image=self.plots_frm_ald_xic_img)
+                if ald_data['saturation_corrected']:
+                    # make an image to annotate precursor if saturation was corrected
+                    self.ald_sat_corr_img = ImageTk.PhotoImage(Image.new('RGB', (20, 20), SAT_CORR_COLOR))
+                    self.plots_frm_ald_xic.create_image(0, 0, image=self.ald_sat_corr_img)
+            # isotope distribution
+            if (iso_img := ald_data["isotope_dist_img"]) is not None:
+                self.ald_isodist_img = Image.open(io.BytesIO(iso_img))
+                self.plots_frm_ald_isodist_img = ImageTk.PhotoImage(self.ald_isodist_img.resize((self.iwt, self.ht), resample))
+                self.plots_frm_ald_isodist.create_image(0, 0, anchor=NW, image=self.plots_frm_ald_isodist_img)
         # fetch criegee image data (if present)
-        crg_data = self.results['targets'][lipid][adduct][rt]['fragments'][db_idx][db_pos]['criegee']
-        if crg_data is not None:
-            self.crg_xic_img = Image.open(io.BytesIO(crg_data['xic_fit_img']))
-            self.plots_frm_crg_xic_img = ImageTk.PhotoImage(self.crg_xic_img.resize((self.xwt, self.ht), resample))
-            self.plots_frm_crg_xic.create_image(0, 0, anchor=NW, image=self.plots_frm_crg_xic_img)
-            if crg_data['saturation_corrected']:
-                # make an image to annotate precursor if saturation was corrected
-                self.crg_sat_corr_img = ImageTk.PhotoImage(Image.new('RGB', (20, 20), SAT_CORR_COLOR))
-                self.plots_frm_crg_xic.create_image(0, 0, image=self.crg_sat_corr_img)
-            self.crg_isodist_img = Image.open(io.BytesIO(crg_data['isotope_dist_img']))
-            self.plots_frm_crg_isodist_img = ImageTk.PhotoImage(self.crg_isodist_img.resize((self.iwt, self.ht), resample))
-            self.plots_frm_crg_isodist.create_image(0, 0, anchor=NW, image=self.plots_frm_crg_isodist_img)
-        else:
-            self.crg_xic_img = None
-            self.crg_sat_corr_img = None
-            self.crg_isodist_img = None
-            self.plots_frm_crg_xic_img = None
-            self.plots_frm_crg_isodist_img = None
+        if (crg_data := self.results['targets'][lipid][adduct][rt]['fragments'][db_idx][db_pos]['criegee']) is not None:
+            # XIC
+            if (xic_img := crg_data["xic_fit_img"]) is not None:
+                self.crg_xic_img = Image.open(io.BytesIO(xic_img))
+                self.plots_frm_crg_xic_img = ImageTk.PhotoImage(self.crg_xic_img.resize((self.xwt, self.ht), resample))
+                self.plots_frm_crg_xic.create_image(0, 0, anchor=NW, image=self.plots_frm_crg_xic_img)
+                if crg_data['saturation_corrected']:
+                    # make an image to annotate precursor if saturation was corrected
+                    self.crg_sat_corr_img = ImageTk.PhotoImage(Image.new('RGB', (20, 20), SAT_CORR_COLOR))
+                    self.plots_frm_crg_xic.create_image(0, 0, image=self.crg_sat_corr_img)
+            # isotope distribution    
+            if (iso_img := crg_data["isotope_dist_img"]) is not None:
+                self.crg_isodist_img = Image.open(io.BytesIO(iso_img))
+                self.plots_frm_crg_isodist_img = ImageTk.PhotoImage(self.crg_isodist_img.resize((self.iwt, self.ht), resample))
+                self.plots_frm_crg_isodist.create_image(0, 0, anchor=NW, image=self.plots_frm_crg_isodist_img)
 
     def _clear_plots_frame(self):
         """
@@ -585,4 +636,4 @@ class ResultsWindow():
         """
         self.win.quit()
         self.win.destroy()
-    
+
