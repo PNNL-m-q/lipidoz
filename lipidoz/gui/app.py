@@ -16,6 +16,7 @@ import traceback
 import queue
 import threading
 import pickle
+import gzip
 import sys
 
 from lipidoz.workflows import run_isotope_scoring_workflow
@@ -82,8 +83,8 @@ class LOzApp():
             lipidoz isotope scoring results file
         """
         try:
-            with open(results_file, 'rb') as pf:
-                self.results = pickle.load(pf)
+            with gzip.open(results_file, 'rb') as gzf:
+                self.results = pickle.load(gzf)
         except Exception as e:
             # unable to load results
             sys.exit()

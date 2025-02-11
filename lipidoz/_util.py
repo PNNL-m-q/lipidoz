@@ -82,8 +82,8 @@ def _monounsat_ald_crg_mass(precursor_mass, db_position):
     computes the monoisotopic mass corresponding to aldehyde and criegee fragment ions for an aribitrary
     lipid precursor mass
 
-    Paramters
-    ---------
+    Parameters
+    ----------
     precursor_mass : ``float``
         mass of arbitrary precursor lipid
     db_position : int
@@ -107,8 +107,8 @@ def _polyunsat_ald_crg_mass(precursor_mass, db_position, db_idx):
     computes the monoisotopic mass corresponding to aldehyde and criegee fragment ions for an aribitrary
     lipid precursor mass
 
-    Paramters
-    ---------
+    Parameters
+    ----------
     precursor_mass : ``float``
         mass of arbitrary precursor lipid
     db_position : ``int``
@@ -208,22 +208,10 @@ def new_lipidoz_results():
     return lipidoz_results
 
 
-# NOTE (Dylan Ross): This prevents deadlocks that occur when too much data 
-#                    gets put into a queue before items are removed. It is 
-#                    NOT a problem of the queue's max_size parameter (i.e. 
-#                    the specified capacity of the queue in terms of item 
-#                    count), which theoretically should be infinite when 
-#                    set to 0. Instead, this problem arrises from the limited 
-#                    capacity of the underlying pipe used to feed data between
-#                    processes. For items with larger sizes (bytes), the pipe 
-#                    can get filled up by relatively low item counts. This ulimately 
-#                    causes a complete deadlock that prevents new items from being 
-#                    added to the queue. Feeding chunks of spectra to be 
-#                    unpacked should circumvent this issues by ensuring that 
-#                    there are never too many items in either queue at one time
-# batch size for unpacking (decompressing and decoding) mass spectra
-# using multiprocessing.
-_UNPACK_BATCH_SIZE = 128
+# TODO (Dylan Ross): This really needs to be pared down to a single class with only the functionality
+#                    that is absolutely required for OzID data analysis. I copied this in here from 
+#                    other existing code for a different purpose to quickly get things up and running 
+#                    but there is a lot that is unecessary. 
 
 
 class _UReader():
@@ -231,7 +219,7 @@ class _UReader():
     Minimal object for reading data from UIMF files
     """
 
-    def __init__(self, path, workers):
+    def __init__(self, path):
         """
         _UReader initialized with path to UIMF file. Should be closed when done
 
@@ -255,64 +243,12 @@ class _UReader():
         # store the average duration of all IM frames (in milliseconds)
         self._avg_frame_duration = self._get_avg_frame_duration()
         # store array of all m/zs
-        self._all_mzs = self.mzbin_to_mz(np.arange(self._n_bins))
-        # set up multiprocessing queues for decoding and decompressing spectra
-        self._q_in = JoinableQueue()
-        # NOTE (Dylan Ross): The real limiting factor as discussed in the note above
-        #                    has more to do with the size of items in the output queue
-        #                    rather than the input queue since the spectra get decompressed
-        #                    and decoded into much larger datastructures. In this case it 
-        #                    help to use separate output queues for each of the worker
-        #                    threads so that added size gets spread over n_threads chunks
-        #                    increasing the batch size that can be successfully processed 
-        #                    without running into problems
-        self._q_outs = [
-            JoinableQueue() for n in range(workers)
-        ]
-        # set up worker processes for decoding and decompressing spectra
-        self._workers = [
-            Process(target=self._worker, name=f"worker_{n}", 
-                    args=(self._q_in, self._q_outs[n]), 
-                    daemon=True) 
-                for n in range(workers)
-        ]
-        # start workers for decoding and decompressing spectra
-        for worker in self._workers:
-            worker.start()
-        # init shared memory for accumulated spectrum
-        # https://docs.python.org/3/library/multiprocessing.shared_memory.html#:~:text=the%20shared%20memory-,The%20following%20example,-demonstrates%20a%20practical
-        #accum_spec = np.zeros(self._n_bins)
-        #self.shm = shared_memory.SharedMemory(name="accum_spec_mem", create=True, size=accum_spec.nbytes)
-        
-
-    @staticmethod
-    def _worker(q_in, q_out):
-        """
-        process worker function for decoding and decompressing spectra
-        """
-        n_processed = 0
-        pid = os.getpid()
-        while True:
-            # block, wait for a new job from the input queue
-            #print(f"(pid: {pid}) waiting for input...")
-            tag, blob = q_in.get()        
-            #print(f"(pid: {pid}) got input (tag: {tag})")
-            spectrum = _UReader._decode(_UReader._decompress(blob))
-            #print(f"(pid: {pid}) unpacked spectrum, adding to output queue (tag: {tag})")
-            q_out.put((tag, spectrum))
-            # signal to input queue that we finished our job
-            q_in.task_done()
-            n_processed += 1
-            #print(f"(pid: {pid}) processing complete (tag: {tag})")
-            #print(f"(pid: {pid}) processed {n_processed} spectra")
+        self._all_mzs = self.mzbin_to_mz(np.arange(self._n_bins))        
 
     def close(self):
         """ clean up tasks """
         # close DB connection
         self._con.close()
-        # terminate all of the worker processes
-        for worker in self._workers:
-            worker.terminate()
 
     def _get_n_bins(self):
         """ fetches NBins value from Global_Params table """
@@ -417,33 +353,6 @@ class _UReader():
                     else:
                         break
         return i_sum
-    
-    def _unpack_batch(self, tags_blobs):
-        """
-        takes a list of tuples (tag, blob) with compressed encoded spectra, uses
-        multiprocessing to decompress and decode them, returning a list of tuples
-        (tag, intensities) with decompressed and decoded spectra  
-        """
-        # do not accept too many inputs, the errors are difficult to debug
-        assert(len(tags_blobs) <= _UNPACK_BATCH_SIZE)
-        for tag, blob in tags_blobs:
-            self._q_in.put((tag, blob))
-        # NOTE (Dylan Ross): this will stop blocking after all items that were retrieved have had
-        #                    task_done() called in the consumer, marking them as complete. The 
-        #                    task_done() method is only used in the consumer after the output has 
-        #                    been put into the output queue so we can trust that all processing is
-        #                    complete once the input queue finally stops blocking
-        self._q_in.join()
-        # fetch the spectra from the output queue
-        tags_intensities = []
-        # iterate through each thread output queue
-        for q_out in self._q_outs:
-            while True:  # emulate a do-while loop
-                try:
-                    tags_intensities.append(q_out.get_nowait())
-                except queue.Empty:
-                    break
-        return tags_intensities
 
     def _accum_spectra(self, qry):
         """
@@ -463,18 +372,10 @@ class _UReader():
         intensities : ``numpy.array(int)``
             summed mass spectrum, indices are m/z bins
         """
-        res = self._cur.execute(qry).fetchall()
         intensities = np.zeros(self._n_bins)
-        batch_n = 0
-        batches = len(res) // _UNPACK_BATCH_SIZE + 1
-        for i in range(0, len(res), _UNPACK_BATCH_SIZE):
-            batch_n += 1
-            #print(f"\rprocessing batch: {batch_n:6d}/{batches:<6d} ({100. * batch_n / batches:6.2f} %)", end=" ")
-            batch = res[i:i + _UNPACK_BATCH_SIZE]
-            for tag, spectrum in self._unpack_batch(batch):
-                for mzb, i in spectrum:
-                    intensities[mzb] += 1
-        #print()
+        for _, blob in self._cur.execute(qry).fetchall():
+            for mzb, i in _UReader._decode(_UReader._decompress(blob)):
+                intensities[mzb] += i
         return self._all_mzs, intensities
 
     def accum_spectra_allframes(self, 
@@ -580,8 +481,8 @@ class _UReader():
 class CustomUReader(_UReader):
     """ custom UIMF reader to deal with these particular converted SLIM data files """
 
-    def __init__(self, path, workers):
-        super().__init__(path, workers)
+    def __init__(self, path):
+        super().__init__(path)
         # this holds the arrays used for indexing out XICs and MS1 spectra
         # set by self.accum_frame_spectra_allscans method
         self.__frame_spectra_allscans = None
