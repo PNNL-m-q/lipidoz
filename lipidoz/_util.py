@@ -7,7 +7,7 @@ Dylan Ross (dylan.ross@pnnl.gov)
 """
 
 
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union, Dict
 from sqlite3 import connect
 from multiprocessing import JoinableQueue, Process
 import queue
@@ -17,11 +17,21 @@ import io
 from matplotlib import pyplot as plt, image as mpimage
 import lzf
 import numpy as np
-
+from mzapy import MZA
 from mzapy.isotopes import monoiso_mass
 
 
-def _polyunsat_ald_crg_formula(precursor_formula, db_position, db_idx):
+# type annotation that covers both MZA and UIMF readers
+type OzData = Union[MZA, CustomUReader]
+
+# molecular formula: dict mapping atom to count
+type Formula = Dict[str, int]
+
+
+def _polyunsat_ald_crg_formula(precursor_formula: Formula, 
+                               db_position: int, 
+                               db_idx: int
+                               ) -> Tuple[Formula, Formula] :
     """
     produces the molecular formulas for aldehyde and criegee fragments corresponding to a polyunsaturated
     lipid species with double bond at the specified position (numbered from the end of the FA, i.e., n-X)
@@ -31,19 +41,17 @@ def _polyunsat_ald_crg_formula(precursor_formula, db_position, db_idx):
 
     Parameters
     ----------
-    precursor_formula : ``dict(int:str)``
+    precursor_formula
         molecular formula as a dictionary mapping elements (str) to their counts (int)
-    db_position : ``int``
+    db_position 
         double bond position, numbered from the end of the FA
-    db_idx : ``int``
+    db_idx 
         index of double bond, numbered from the end of the FA
 
     Returns
     -------
-    aldehyde : ``dict(int:str)``
-        aldehyde fragment molecular formula as a dictionary mapping elements (str) to their counts (int)
-    criegee : ``dict(int:str)``
-        criegee fragment molecular formula as a dictionary mapping elements (str) to their counts (int)
+    aldehyde, criegee
+        aldehyde and criegee fragment molecular formulas as a dicts mapping elements (str) to their counts (int)
     """
     aldehyde = precursor_formula.copy()
     aldehyde['C'] -= db_position

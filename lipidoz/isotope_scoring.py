@@ -1,11 +1,10 @@
 """
 lipidoz/isotope_scoring.py
-
 Dylan Ross (dylan.ross@pnnl.gov)
 
     module for performing isotope scoring of aldehyde/criegee ions
 
-    method:
+    general method:
         1. use target RT to fit LC peak for precursor -> observed RT, peak width, intensity
         2. determine if the peak is saturated (either by some threshold or another method based on peak shape), if so:
             2.1 determine scan indices for leading edge of LC peak
@@ -18,20 +17,31 @@ Dylan Ross (dylan.ross@pnnl.gov)
 
 
 import io
+from typing import Optional, Any, Dict, Tuple, List
+from collections.abc import Generator
+import threading
 
-from matplotlib import pyplot as plt, rcParams, image as mpimage, use as mpuse
+from matplotlib import pyplot as plt, rcParams, use as mpuse
 import numpy as np
 from scipy import spatial
-
 from mzapy.isotopes import predict_m_m1_m2
 from mzapy.peaks import lerp_1d, find_peaks_1d_localmax, find_peaks_1d_gauss, _gauss
 from mzapy._util import _ppm_error
 
-from lipidoz._util import _polyunsat_ald_crg_formula, _calc_dbp_bounds, _debug_handler
+from lipidoz._util import (
+    OzData,
+    Formula,
+    _polyunsat_ald_crg_formula, 
+    _calc_dbp_bounds, 
+    _debug_handler
+)
 
 
 _XIC_MIN_ABS_INTENSITY = 100
 _MS1_MIN_ABS_INTENSITY = 100
+
+
+# TODO: Type annotation for results, or better yet convert the results to a dataclass instead of nested dicts
 
 
 def _plot_xic_with_peak(xic_rt, xic_int, prt, pht, pwt,
@@ -410,26 +420,47 @@ def _extract_ms1_and_calc_isotope_score(oz_data, target_mz, target_abun, rt_min,
     return (mz_score, int_score, cos_score), isotope_dist_img
 
 
-def _do_fragment_scoring(oz_data, fragment, formula, 
-                         mz_tol, ms1_fit_method, 
-                         pre_rt, pre_wt,
-                         pre_xic_rt, pre_xic_int, 
-                         debug_flag, debug_cb):
+def _do_fragment_scoring(oz_data: OzData, 
+                         fragment: str, 
+                         formula: Formula, 
+                         mz_tol: float, 
+                         ms1_fit_method: str, 
+                         pre_rt: float,
+                         pre_wt: float,
+                         pre_xic_rt: Any, 
+                         pre_xic_int: Any, 
+                         debug_flag: Optional[str], 
+                         debug_cb: Optional[Any]
+                         ) -> Optional[Dict[Any]] :
     """
-    ?
+    Perform scoring analysis for a single fragment
 
     Parameters
     ----------
-
-    debug_flag : ``str``
+    oz_data
+        interface for OzID data in either MZA or UIMF
+    fragment
+        "aldehyde" or "criegee"
+    formula
+        molecular formula of the fragment
+    mz_tol
+        m/z tolerance for data extraction
+    ms1_fit_method
+        "gauss" or "localmax"
+    pre_rt, pre_wt
+        precursor retention time and peak width
+    pre_xic_rt, pre_xic_int
+        precursor XIC arrays
+    debug_flag 
         specifies how to dispatch the message and/or plot, None to do nothing
-    debug_cb : ``func``
+    debug_cb 
         callback function that takes the debugging message as an argument, can be None if
         debug_flag is not set to 'textcb'
 
     Returns
     -------
-
+    results
+        individual fragment scoring results, or None 
     """
     fragment_results = {}
     # scoring for aldehyde
@@ -474,14 +505,27 @@ def _do_fragment_scoring(oz_data, fragment, formula,
         return None
 
 
-def _do_fragment_scoring_infusion(oz_data, fragment, formula, mz_tol, ms1_fit_method, debug):
+def _do_fragment_scoring_infusion(oz_data: OzData, 
+                                  fragment: str, 
+                                  formula: Formula, 
+                                  ms1_fit_method: str, 
+                                  debug_flag: Optional[str], 
+                                  debug_cb: Optional[Any]
+                                  ) -> Dict[str, Any] :
+    """
+    """
     fragment_results = {}
     # scoring for aldehyde
-    if debug:
-        print(fragment)
+    _debug_handler(debug_flag, debug_cb, fragment)
     target_mz, target_abun = predict_m_m1_m2(formula)
-    scores, iso_dist_img = _extract_ms1_and_calc_isotope_score(oz_data, target_mz, target_abun, 
-                                                               oz_data.min_rt, oz_data.max_rt, ms1_fit_method, debug)
+    scores, iso_dist_img = _extract_ms1_and_calc_isotope_score(oz_data, 
+                                                               target_mz, 
+                                                               target_abun, 
+                                                               oz_data.min_rt, 
+                                                               oz_data.max_rt, 
+                                                               ms1_fit_method, 
+                                                               debug_flag, 
+                                                               debug_cb)
     if scores is not None:
         fragment_results = {
             'target_mz': target_mz[0],
@@ -504,10 +548,21 @@ def _do_fragment_scoring_infusion(oz_data, fragment, formula, mz_tol, ms1_fit_me
 #                    be some pruning of these formulas to avoid double counting of the AC/CA species.
 
 
-def score_db_pos_isotope_dist_polyunsat(oz_data, precursor_formula, fa_nc, fa_nu, mz_tol, 
-                                        rt_fit_method='gauss', ms1_fit_method='localmax', 
-                                        check_saturation=False, saturation_threshold=2e6, remove_d=None, 
-                                        debug_flag=None, debug_cb=None, info_cb=None, early_stop_event=None):
+def score_db_pos_isotope_dist_polyunsat(oz_data: OzData, 
+                                        precursor_formula: Formula, 
+                                        fa_nc: Tuple[int], 
+                                        fa_nu: Tuple[int], 
+                                        mz_tol: float, 
+                                        rt_fit_method: str = 'gauss', 
+                                        ms1_fit_method: str = 'localmax', 
+                                        check_saturation: bool = False, 
+                                        saturation_threshold: float = 2e6, 
+                                        remove_d: Optional[int] = None, 
+                                        debug_flag: Optional[str] = None,
+                                        debug_cb: Optional[Any] = None, 
+                                        info_cb: Optional[Any] = None, 
+                                        early_stop_event: Optional[threading.Event] = None
+                                        ) -> Generator[Dict[str, Any], Any, Any] :
     """
     performs isotope distribution scoring for a range of potential double-bond positions for polyunsaturated lipids, 
     also works for monounsaturated lipids, and essentially does nothing for completely saturated lipids
@@ -519,41 +574,42 @@ def score_db_pos_isotope_dist_polyunsat(oz_data, precursor_formula, fa_nc, fa_nu
 
     Parameters
     ----------
-    oz_data : ``lipidoz._util.CustomUReader``
+    oz_data 
         UIMF data interface instance for OzID data
-    precursor_formula : ``dict(str:int)``
+    precursor_formula
         chemical formula of the precursor ion
-    fa_nc : ``tuple(int)``
+    fa_nc 
         number of carbons in precursor fatty acids
-    fa_nu : ``tuple(int)``
+    fa_nu 
         number of DB in each precursor fatty acid, in same order as precursor_nc
-    mz_tol : ``float``
+    mz_tol 
         m/z tolerance for extracting XICs
-    rt_fit_method : ``str``, default='gauss'
+    rt_fit_method 
         specify method to use for fitting the RT peak ('gauss' works best in testing)
-    ms1_fit_method : ``str``, default='localmax'
+    ms1_fit_method 
         specify method to use for fitting MS1 spectrum ('localmax' works best in testing)
-    check_saturation : ``bool``, default=False
+    check_saturation 
         whether to check for signal saturation and use leading edge strategy if necessary
-    saturation_threshold : ``float``, default=1e6
+        NOTE: saturation correction is not currently implemented since last round of updates
+    saturation_threshold 
         specify a threshold intensity for determining peak saturation
-    remove_d : ``int``, optional
+    remove_d 
         adjust molecular formulas to get rid of D labels on fatty acid tail that are part of the neutral loss
         (specific to SPLASH lipids)
-    debug_flag : ``str``, optional
+    debug_flag 
         specifies how to dispatch the message and/or plot, None to do nothing
-    debug_cb : ``func``, optional
+    debug_cb 
         callback function that takes the debugging message as an argument, can be None if
         debug_flag is not set to 'textcb'
-    info_cb : ``function``, optional
+    info_cb 
         optional callback function that gets called at several intermediate steps and gives information about data
         processing details. Callback function takes a single argument which is a ``str`` info message
-    early_stop_event : ``threading.Event``, optional
+    early_stop_event 
         When the workflow is running in its own thread and this event gets set, processing is stopped gracefully
 
     Yields
     ------
-    result : dict(...)
+    result
         dictionary containing analysis results
     """
     # use non GUI backend if debug is set to False (required for lipidoz_gui)
@@ -817,54 +873,71 @@ def score_db_pos_isotope_dist_polyunsat_infusion(oz_data, precursor_formula, fa_
     return results
 
 
-def score_db_pos_isotope_dist_targeted(oz_data, precursor_formula, db_idxs, db_posns, target_rt, rt_tol, 
-                                       rt_peak_win, mz_tol, rt_fit_method='gauss', ms1_fit_method='localmax', 
-                                       check_saturation=True, saturation_threshold=1e5, remove_d=None, 
-                                       debug_flag=None, debug_cb=None, info_cb=None):
+# TODO: This function seems like it might not have the updates to XIC extraction that the untargeted variant has?
+#       Maybe the logic after determining double bond positions from both functions should be factored into a
+#       separate internal function that both can call down into?
+
+def score_db_pos_isotope_dist_targeted(oz_data: OzData, 
+                                       precursor_formula: Formula, 
+                                       db_idxs: List[int], 
+                                       db_posns: List[int], 
+                                       target_rt: float, 
+                                       rt_tol: float, 
+                                       rt_peak_win: float, 
+                                       mz_tol: float, 
+                                       rt_fit_method: str = 'gauss', 
+                                       ms1_fit_method: str = 'localmax', 
+                                       check_saturation: bool = True, 
+                                       saturation_threshold: float = 1e5, 
+                                       remove_d: Optional[int] = None, 
+                                       debug_flag: Optional[str] = None, 
+                                       debug_cb: Optional[Any] = None, 
+                                       info_cb: Optional[Any] = None
+                                       ) -> Dict[str, Any] :
     """
     performs isotope distribution scoring for targeted double bond positions
 
     Parameters
     ----------
-    oz_data : ``lipidoz._util.CustomUReader``
+    oz_data 
         UIMF data interface instance for OzID data
-    precursor_formula : ``dict(str:int)``
+    precursor_formula
         chemical formula of the precursor ion
-    db_idxs : ``list(int)``
+    db_idxs 
         list of targeted double bond indices
-    db_posns : ``list(int)``
+    db_posns 
         list of targeted double bond positions
-    target_rt : ``float``
+    target_rt 
         precursor target retention time
-    rt_tol : ``float``
+    rt_tol 
         retention time tolerance
-    rt_peak_win : ``float``
+    rt_peak_win 
         size of RT window to extract for peak fitting
-    mz_tol : ``float``
+    mz_tol 
         m/z tolerance for extracting XICs
-    rt_fit_method : ``str``, default='gauss'
+    rt_fit_method
         specify method to use for fitting the RT peak ('gauss' works best in testing)
-    ms1_fit_method : ``str``, default='localmax'
+    ms1_fit_method 
         specify method to use for fitting MS1 spectrum ('localmax' works best in testing)
-    check_saturation : ``bool``, default=True
+    check_saturation 
         whether to check for signal saturation and use leading edge strategy if necessary
-    saturation_threshold : ``float``, default=1e5
+    saturation_threshold 
         specify a threshold intensity for determining peak saturation
-    remove_d : ``int``, optional
+    remove_d 
         adjust molecular formulas to get rid of D labels on fatty acid tail that are part of the neutral loss
         (specific to SPLASH lipids)
-    debug_flag : ``str``, optional
+    debug_flag 
         specifies how to dispatch the message and/or plot, None to do nothing
-    debug_cb : ``func``, optional
+    debug_cb 
         callback function that takes the debugging message as an argument, can be None if
         debug_flag is not set to 'textcb'
-    info_cb : ``function``, optional
+    info_cb 
         optional callback function that gets called at several intermediate steps and gives information about data
         processing details. Callback function takes a single argument which is a ``str`` info message
 
     Returns
     -------
-    result : dict(...)
+    result 
         dictionary containing analysis results
     """
     # use non GUI backend if debug is set to False (required for lipidoz_gui)
