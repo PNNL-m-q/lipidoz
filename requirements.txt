@@ -1,4 +1,4 @@
-mzapy
+mzapy>=1.8.0
 matplotlib
 numpy
 scipy

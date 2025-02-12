@@ -1,12 +1,9 @@
 """
 lipidoz/_pyliquid.py
-
 Dylan Ross (dylan.ross@pnnl.gov)
 
-   Temporary module for lipid-related calculations. Once the standalone pyliquid package is ready, we can just pull
-   the parse_lipid_name function from there instead of having this module
-
-   from pyliquid.lipids import parse_lipid_name
+    TODO: This functionality is now present within lipidimea package. Once that has been properly 
+          deployed, it can be imported from there instead of defined in here.
 """
 
 

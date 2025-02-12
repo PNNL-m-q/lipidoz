@@ -8,6 +8,10 @@ Dylan Ross (dylan.ross@pnnl.gov)
 """
 
 
+# TODO: This is a long module, might be better to factor into subpackage to separate things like
+#       isotope scoring related stuff from the ML stuff.
+
+
 # TODO (Dylan Ross): maybe it is better to have a params dataclass for the isotope scoring workflow
 #                    which includes optional DB positions/indices for the targeted variant of the 
 #                    workflow as well, that way the params can just be passed in as a single instance
@@ -20,10 +24,12 @@ import os
 import pickle
 import gzip
 from tempfile import TemporaryDirectory
+from typing import Optional, Any, Dict
+import threading
 
 import numpy as np
 import xlsxwriter
-
+from mzapy import MZA
 from mzapy.isotopes import valid_ms_adduct, monoiso_mass, ms_adduct_formula
 
 from lipidoz import __version__ as VER
@@ -33,11 +39,11 @@ from lipidoz.isotope_scoring import (
     score_db_pos_isotope_dist_targeted
 )
 from lipidoz._util import (
+    CustomUReader,
     _polyunsat_ald_crg_formula, 
     _calc_dbp_bounds, 
     _debug_handler, 
     new_lipidoz_results, 
-    CustomUReader
 )
 from lipidoz.ml.data import (
     load_preml_data, 
@@ -267,9 +273,17 @@ def _load_target_list_infusion(target_list_file, ignore_preferred_ionization):
     return target_lipids, adducts
 
 
-def run_isotope_scoring_workflow(oz_data_file, target_list_file, mz_tol, 
-                                 d_label=None, d_label_in_nl=None, progress_cb=None, info_cb=None, 
-                                 early_stop_event=None, debug_flag=None, debug_cb=None):
+def run_isotope_scoring_workflow(oz_data_file: str, 
+                                 target_list_file: str, 
+                                 mz_tol: float, 
+                                 d_label: Optional[int] = None, 
+                                 d_label_in_nl: Optional[bool] = None, 
+                                 progress_cb: Optional[Any] = None, 
+                                 info_cb: Optional[Any] = None, 
+                                 early_stop_event: Optional[threading.Event] = None, 
+                                 debug_flag: Optional[str] = None, 
+                                 debug_cb: Optional[Any] = None
+                                 ) -> Dict[str, Any] :
     """
     workflow for performing isotope scoring for the determination of db positions. 
     inputs are the data file and target list file, output is a dictionary containing metadata about the analysis and
@@ -327,7 +341,7 @@ def run_isotope_scoring_workflow(oz_data_file, target_list_file, mz_tol,
 
     Returns
     -------
-    isotope_scoring_results : ``dict(...)``
+    isotope_scoring_results 
         results dictionary with metadata and scoring information
     """
     # store metadata
@@ -352,12 +366,18 @@ def run_isotope_scoring_workflow(oz_data_file, target_list_file, mz_tol,
         msg = 'INFO: loaded target list: {} ({} targets)'.format(target_list_file, n)
         info_cb(msg)
     # load the data 
-    oz_data = CustomUReader(oz_data_file)
+    match (ext := os.path.splitext(oz_data_file)[-1]):
+        case ".uimf":
+            oz_data = CustomUReader(oz_data_file)
+            # additional initialization, skip Frame 1 
+            oz_data.accum_frame_spectra_allscans(skip_frame_1=True)
+        case ".mza":
+            oz_data = MZA(oz_data_file, cache_scan_data=True, mza_version="new")
+        case _:
+            raise ValueError(f"unrecognized raw data file extension: {ext}")
     if info_cb is not None:
         msg = "INFO: loading OzID data file ..."
         info_cb(msg)
-    # skip Frame 1 
-    oz_data.accum_frame_spectra_allscans(True)
     if info_cb is not None:
         msg = 'INFO: loaded OzID data file: {}'.format(oz_data_file)
         info_cb(msg)
@@ -616,8 +636,16 @@ def run_isotope_scoring_workflow_infusion(oz_data_file, target_list_file, mz_tol
     isotope_scoring_results : ``dict(...)``
         results dictionary with metadata and scoring information
     """
-    # has not been updated to account for changes from working with UIMF data
-    assert False, "not implemented"
+    # load the data 
+    match (ext := os.path.splitext(oz_data_file)[-1]):
+        case ".uimf":
+            oz_data = CustomUReader(oz_data_file)
+            # additional initialization, skip Frame 1 
+            oz_data.accum_frame_spectra_allscans(skip_frame_1=True)
+        case ".mza":
+            oz_data = MZA(oz_data_file, cache_scan_data=True, mza_version="new")
+        case _:
+            raise ValueError(f"unrecognized raw data file extension: {ext}")
     # store metadata
     results = {
         'metadata': {
@@ -633,8 +661,6 @@ def run_isotope_scoring_workflow_infusion(oz_data_file, target_list_file, mz_tol
     }
     # load the target list
     target_lipids, target_adducts = _load_target_list_infusion(target_list_file, ignore_preferred_ionization)
-    # load the data 
-    oz_data = MZA(oz_data_file, cache_scan_data=True, mza_version=mza_version)
     # main data processing
     n = len(target_lipids)
     i = 1
@@ -895,7 +921,16 @@ def collect_preml_dataset(oz_data_file, target_list_file, rt_tol, d_label=None, 
     pre_ml_dataset : ``dict(...)``
         dataset used for assembling ML training data
     """
-    assert False, "not implemented"
+    # load the data 
+    match (ext := os.path.splitext(oz_data_file)[-1]):
+        case ".uimf":
+            oz_data = CustomUReader(oz_data_file)
+            # additional initialization, skip Frame 1 
+            oz_data.accum_frame_spectra_allscans(skip_frame_1=True)
+        case ".mza":
+            oz_data = MZA(oz_data_file, cache_scan_data=True, mza_version="new")
+        case _:
+            raise ValueError(f"unrecognized raw data file extension: {ext}")
     # store metadata
     pre_ml_dset = {
         'metadata': {
@@ -913,8 +948,6 @@ def collect_preml_dataset(oz_data_file, target_list_file, rt_tol, d_label=None, 
     target_lipids, target_adducts, target_rts = _load_target_list(target_list_file, 
                                                                   ignore_preferred_ionization, 
                                                                   rt_correction_func)
-    # load the data 
-    oz_data = MZA(oz_data_file, cache_scan_data=True, mza_version=mza_version)
     # main data processing
     for tlipid, tadduct, trt in zip(target_lipids, target_adducts, target_rts):
         if d_label is not None:
