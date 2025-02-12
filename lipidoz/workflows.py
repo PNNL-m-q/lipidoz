@@ -8,6 +8,10 @@ Dylan Ross (dylan.ross@pnnl.gov)
 """
 
 
+# TODO: This is a long module, might be better to factor into subpackage to separate things like
+#       isotope scoring related stuff from the ML stuff.
+
+
 # TODO (Dylan Ross): maybe it is better to have a params dataclass for the isotope scoring workflow
 #                    which includes optional DB positions/indices for the targeted variant of the 
 #                    workflow as well, that way the params can just be passed in as a single instance
@@ -35,7 +39,6 @@ from lipidoz.isotope_scoring import (
     score_db_pos_isotope_dist_targeted
 )
 from lipidoz._util import (
-    OzData, 
     CustomUReader,
     _polyunsat_ald_crg_formula, 
     _calc_dbp_bounds, 
@@ -633,8 +636,16 @@ def run_isotope_scoring_workflow_infusion(oz_data_file, target_list_file, mz_tol
     isotope_scoring_results : ``dict(...)``
         results dictionary with metadata and scoring information
     """
-    # has not been updated to account for changes from working with UIMF data
-    assert False, "not implemented"
+    # load the data 
+    match (ext := os.path.splitext(oz_data_file)[-1]):
+        case ".uimf":
+            oz_data = CustomUReader(oz_data_file)
+            # additional initialization, skip Frame 1 
+            oz_data.accum_frame_spectra_allscans(skip_frame_1=True)
+        case ".mza":
+            oz_data = MZA(oz_data_file, cache_scan_data=True, mza_version="new")
+        case _:
+            raise ValueError(f"unrecognized raw data file extension: {ext}")
     # store metadata
     results = {
         'metadata': {
@@ -650,8 +661,6 @@ def run_isotope_scoring_workflow_infusion(oz_data_file, target_list_file, mz_tol
     }
     # load the target list
     target_lipids, target_adducts = _load_target_list_infusion(target_list_file, ignore_preferred_ionization)
-    # load the data 
-    oz_data = MZA(oz_data_file, cache_scan_data=True, mza_version=mza_version)
     # main data processing
     n = len(target_lipids)
     i = 1
@@ -912,7 +921,16 @@ def collect_preml_dataset(oz_data_file, target_list_file, rt_tol, d_label=None, 
     pre_ml_dataset : ``dict(...)``
         dataset used for assembling ML training data
     """
-    assert False, "not implemented"
+    # load the data 
+    match (ext := os.path.splitext(oz_data_file)[-1]):
+        case ".uimf":
+            oz_data = CustomUReader(oz_data_file)
+            # additional initialization, skip Frame 1 
+            oz_data.accum_frame_spectra_allscans(skip_frame_1=True)
+        case ".mza":
+            oz_data = MZA(oz_data_file, cache_scan_data=True, mza_version="new")
+        case _:
+            raise ValueError(f"unrecognized raw data file extension: {ext}")
     # store metadata
     pre_ml_dset = {
         'metadata': {
@@ -930,8 +948,6 @@ def collect_preml_dataset(oz_data_file, target_list_file, rt_tol, d_label=None, 
     target_lipids, target_adducts, target_rts = _load_target_list(target_list_file, 
                                                                   ignore_preferred_ionization, 
                                                                   rt_correction_func)
-    # load the data 
-    oz_data = MZA(oz_data_file, cache_scan_data=True, mza_version=mza_version)
     # main data processing
     for tlipid, tadduct, trt in zip(target_lipids, target_adducts, target_rts):
         if d_label is not None:
