@@ -324,13 +324,18 @@ def _calc_cosine_from_recon_spectrum(ms1_i_mz, ms1_i_int, target_mz, target_abun
 def _calc_cosine_from_xic(pre_xic_rt, pre_xic_int, frg_xic_rt, frg_xic_int):
     """
     """
+    # make sure that both XICs have more than 2 points and some of them are > 0
+    # if not, then just return cosine distance of 1
+    if (
+        len(pre_xic_int) < 2
+        or len(frg_xic_int) < 2
+        or sum(pre_xic_int) == 0 
+        or sum(frg_xic_int) == 0
+    ):
+        return 1. 
     # lerp both signals to ensure the same sampling (200 points/min)
     _, pre_xic_i_int = lerp_1d(pre_xic_rt, pre_xic_int, min(pre_xic_rt), max(pre_xic_rt), 200)
     _, frg_xic_i_int = lerp_1d(frg_xic_rt, frg_xic_int, min(pre_xic_rt), max(pre_xic_rt), 200)
-    # make sure that both XICs have some points above 0
-    # if not, then just return cosine distance of 1
-    if sum(pre_xic_i_int) == 0 or sum(frg_xic_i_int) == 0:
-        return 1. 
     # normalize both signals
     pre_xic_i_int /= max(pre_xic_i_int)
     frg_xic_i_int /= max(frg_xic_i_int)
@@ -431,7 +436,7 @@ def _do_fragment_scoring(oz_data: OzData,
                          pre_xic_int: Any, 
                          debug_flag: Optional[str], 
                          debug_cb: Optional[Any]
-                         ) -> Optional[Dict[Any]] :
+                         ) -> Optional[Dict[str, Any]] :
     """
     Perform scoring analysis for a single fragment
 
@@ -481,11 +486,16 @@ def _do_fragment_scoring(oz_data: OzData,
         # determine the XIC comparison range based on peak width (+/- FWHM x3)
         pre_xic_cmp_idx = (pre_xic_rt >= pre_rt - pre_wt * 3) & (pre_xic_rt <= pre_rt + pre_wt * 3)
         xic_cmp_idx = (xic[0] >= pre_rt - pre_wt * 3) & (xic[0] <= pre_rt + pre_wt * 3)
+        xic_peak_ht = (
+            max(a) 
+            if len(a := xic[1][(xic[0] >= ms1_rtb[0]) & (xic[0] <= ms1_rtb[1])]) > 0
+            else 0.
+        )
         fragment_results = {
             'target_mz': target_mz[0],
             'target_rt': None,              # * no longer doing XIC peak fitting for fragments
             'xic_peak_rt': None,            # * 
-            'xic_peak_ht': max(xic[1][(xic[0] >= ms1_rtb[0]) & (xic[0] <= ms1_rtb[1])]),
+            'xic_peak_ht': xic_peak_ht,
             'xic_peak_fwhm': None,          # *
             'mz_ppm': mz_ppm,               
             'abun_percent': abun_pct,

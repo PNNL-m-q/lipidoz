@@ -245,10 +245,12 @@ class ResultsWindow():
         self.scores_frm_rtcos_crg_lbl = ttk.Label(self.scores_frm)
         self.scores_frm_rtcos_crg_lbl.grid(row=2, column=2)
         # add a legend explaining how to interpret plots
-        legend_text = ('XICs: grey trace = raw data, red dashed line and shaded area = target RT with RT '
-                       'extraction window,\n        blue crossing lines = fitted peak(s), blue shaded region = '
-                       'extraction window\nMS1 spectra: grey trace = raw data, blue crossing lines = '
-                       'fitted isotopic peaks,\n                red crossing lines = theoretical isotopic peaks')
+        # TODO: needs updating
+        # legend_text = ('XICs: grey trace = raw data, red dashed line and shaded area = target RT with RT '
+        #                'extraction window,\n        blue crossing lines = fitted peak(s), blue shaded region = '
+        #                'extraction window\nMS1 spectra: grey trace = raw data, blue crossing lines = '
+        #                'fitted isotopic peaks,\n                red crossing lines = theoretical isotopic peaks')
+        legend_text = ""
         self.scores_frm_legend_lbl = ttk.Label(self.scores_frm, text=legend_text, relief=GROOVE)
         self.scores_frm_legend_lbl.grid(row=0, column=3, rowspan=3, sticky=(N, S, E, W))
 
@@ -287,7 +289,7 @@ class ResultsWindow():
                             db_posns = [_ for _ in self.results['targets'][lipid][adduct][rt]['fragments'][db_idx].keys()]
                             comp_scores = [self._get_composite_score(self.results['targets'][lipid][adduct][rt]['fragments'][db_idx][_]) for _ in db_posns]
                             self._gen_colored_square_imgs(comp_scores, idbidx)
-                            for sort_i in np.argsort(comp_scores)[::-1]:
+                            for sort_i in np.argsort(comp_scores):
                                 db_pos = db_posns[sort_i]
                                 fragment_data = self.results['targets'][lipid][adduct][rt]['fragments'][db_idx][db_pos]
                                 if fragment_data['aldehyde'] is not None or fragment_data['criegee'] is not None:

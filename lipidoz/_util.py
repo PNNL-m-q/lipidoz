@@ -222,6 +222,8 @@ def new_lipidoz_results():
 #                    but there is a lot that is unecessary. 
 
 
+# TODO: This needs proper attribution of the original UIMFReader code with license and all.
+
 class _UReader():
     """
     Minimal object for reading data from UIMF files
