@@ -1,6 +1,5 @@
 """
 lipidoz/gui/__main__.py
-
 Dylan Ross (dylan.ross@pnnl.gov)
 
     Runs the GUI application when invoked directly
@@ -13,12 +12,12 @@ Dylan Ross (dylan.ross@pnnl.gov)
 #       through the startup window and file chooser. 
 
 
-from lipidoz.gui.app import LOzApp
+from lipidoz.gui.app import LozApp
 
 
 def main():
 
-    app = LOzApp()
+    app = LozApp()
     app.run()
 
 

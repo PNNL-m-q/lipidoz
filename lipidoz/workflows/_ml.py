@@ -388,7 +388,9 @@ def hybrid_deep_learning_and_isotope_scoring(oz_data_file, target_list_file, rt_
                                                           d_label=d_label, d_label_in_nl=d_label_in_nl, 
                                                           debug_flag=debug_flag, debug_cb=debug_cb)
     # convert pre-ml data to ML data and store in lipidoz_results
-    lipidoz_results["ml_data"] = preml_to_ml_data(lipidoz_results["preml_data"], debug_flag=debug_flag, debug_cb=debug_cb)
+    lipidoz_results["ml_data"] = preml_to_ml_data(lipidoz_results["preml_data"], 
+                                                  debug_flag=debug_flag, 
+                                                  debug_cb=debug_cb)
     # load the model and its pre-trained parameters
     rn18 = ResNet18()
     rn18.load(dl_params_file)

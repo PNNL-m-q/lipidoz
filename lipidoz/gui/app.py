@@ -1,6 +1,5 @@
 """
 lipidoz/gui/app.py
-
 Dylan Ross (dylan.ross@pnnl.gov)
 
     Main application code for LipidOz GUI
@@ -26,7 +25,7 @@ from lipidoz.gui.processing_window import ProcessingWindow
 from lipidoz.gui.results_window import ResultsWindow
 
 
-class LOzApp():
+class LozApp():
     """
     """
 
