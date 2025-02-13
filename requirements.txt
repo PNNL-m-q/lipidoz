@@ -8,3 +8,4 @@ scikit-learn
 scikit_image
 torch
 torchvision
+python-lzf
