@@ -553,20 +553,19 @@ class ResultsWindow():
         checks a file name's extension, and if it does not match ext, add ext to the filename and return that. 
         if the name already matches just return the filename
         """
-        return fname + '.' + ext if os.path.splitext(fname)[-1] != ext else fname
+        return fname + ext if os.path.splitext(fname)[-1] != ext else fname
 
     def _saveres_btn_cb(self):
         """
         """
         # the results are propted to be saved in the same directory as the data file
-        oz_data_dir = os.path.abspath(os.path.split(self.results['metadata']['oz_data_file'])[0])
         out_f = filedialog.asksaveasfilename(title='Save LipidOz isotope scoring results',
-                                             initialdir=oz_data_dir, 
+                                             initialdir=os.getcwd(), 
                                              filetypes=[('isotope scoring results', '.loz')])
         if out_f is not None and out_f != '':
             try:
                 # check for lack of file extension and fix if needed
-                out_f = self._check_ext(out_f, 'loz')
+                out_f = self._check_ext(out_f, '.loz')
                 save_isotope_scoring_results(self.results, out_f)
             except Exception as e:
                 # do a message box with the error
@@ -583,7 +582,7 @@ class ResultsWindow():
         if out_f is not None and out_f != '':
             try:
                 # check for lack of file extension and fix if needed
-                out_f = self._check_ext(out_f, 'xlsx')
+                out_f = self._check_ext(out_f, '.xlsx')
                 write_isotope_scoring_report_xlsx(self.results, out_f)
             except Exception as e:
                 # do a message box with the error

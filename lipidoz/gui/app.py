@@ -1,6 +1,5 @@
 """
 lipidoz/gui/app.py
-
 Dylan Ross (dylan.ross@pnnl.gov)
 
     Main application code for LipidOz GUI
@@ -20,20 +19,19 @@ import gzip
 import sys
 
 from lipidoz.workflows import run_isotope_scoring_workflow
-from lipidoz.gui._config import MZA_VERSION, PROC_DEBUG
+from lipidoz.gui._config import PROC_DEBUG
 from lipidoz.gui.setup_window import SetupWindow
 from lipidoz.gui.processing_window import ProcessingWindow
 from lipidoz.gui.results_window import ResultsWindow
 
 
-class LOzApp():
+class LozApp():
     """
     """
 
     def __init__(self):
         """
         """
-        self.mza_version = MZA_VERSION
         # setup, processing, results windows
         self.setup_win = None
         self.processing_win = None
@@ -94,27 +92,23 @@ class LOzApp():
         """
         """
         # TODO (Dylan Ross): handle params as a dataclass, include targeted variant of workflow function
-        oz_file, target_file, rt_tol, rt_ext_win, mz_tol, d_label, d_label_in_nl = self.processing_params
+        oz_file, target_file, mz_tol, d_label, d_label_in_nl = self.processing_params
         def progress_message(lipid_name, adduct, current, total):
             msg = '{} {} processing complete ({} of {})\n'
             message_queue.put(msg.format(lipid_name, adduct, current, total))
         try:
-            if PROC_DEBUG:  # print complete debugging info to processing window
-                results = run_isotope_scoring_workflow(oz_file, target_file, rt_tol, rt_ext_win, 
-                                                    mz_tol, d_label=d_label, d_label_in_nl=d_label_in_nl,
-                                                    progress_cb=progress_message, 
-                                                    info_cb=lambda msg: message_queue.put(msg + '\n'),
-                                                    ignore_preferred_ionization=True, 
-                                                    mza_version=self.mza_version, early_stop_event=early_stop_event,
-                                                    debug_flag='textcb', 
-                                                    debug_cb=lambda msg: message_queue.put(msg + '\n'))
-            else:
-                results = run_isotope_scoring_workflow(oz_file, target_file, rt_tol, rt_ext_win, 
-                                                    mz_tol, d_label=d_label, d_label_in_nl=d_label_in_nl,
-                                                    progress_cb=progress_message, 
-                                                    info_cb=lambda msg: message_queue.put(msg + '\n'),
-                                                    ignore_preferred_ionization=True, 
-                                                    mza_version=self.mza_version, early_stop_event=early_stop_event)
+            # run data processing
+            results = run_isotope_scoring_workflow(
+                oz_file,
+                target_file,
+                mz_tol,
+                d_label=d_label,
+                d_label_in_nl=d_label_in_nl,
+                progress_cb=progress_message,
+                debug_flag="textcb" if PROC_DEBUG else None,
+                debug_cb=lambda msg: message_queue.put(msg + '\n') if PROC_DEBUG else None,
+                info_cb=lambda msg: message_queue.put(msg + '\n')
+            )
             # finish up
             complete_event.set()
             results_queue.put(results)
@@ -152,7 +146,7 @@ class LOzApp():
         """
         display results with the results window
         """
-        self.results_win = ResultsWindow(self.results["isotope_scoring_results"])
+        self.results_win = ResultsWindow(self.results)
         # check for back to setup flag
         if self.results_win.back_to_setup:
             # start from the beginning
