@@ -34,7 +34,7 @@ class ResultsWindow():
         # status flag
         self.back_to_setup = False
         # store the results
-        self.results = isotope_scoring_results
+        self.results = isotope_scoring_results["isotope_scoring_results"]
         #self._remove_nones_from_results()
         # init window and configure
         self.win = Tk()

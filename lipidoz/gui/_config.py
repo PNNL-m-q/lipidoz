@@ -29,9 +29,6 @@ ICO_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), 
     "lipidoz.ico" if PLATFORM_IS_WINDOWS else "lipidoz.icns"
 )
-assert os.path.isfile(ICO_PATH)
-
-
 
 # print complete debugging info to processing window
 PROC_DEBUG = False
