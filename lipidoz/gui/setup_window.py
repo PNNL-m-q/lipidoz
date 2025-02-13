@@ -8,7 +8,6 @@ Dylan Ross (dylan.ross@pnnl.gov)
 """
 
 
-from re import sub
 from tkinter import *
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
@@ -17,7 +16,7 @@ import signal
 import subprocess
 
 from lipidoz import __version__ as LOZ_VER
-from lipidoz.gui._config import DEFAULT_RT_TOL, DEFAULT_RT_EXT_WIN, DEFAULT_MZ_TOL, ICO_PATH, PLATFORM_IS_WINDOWS
+from lipidoz.gui._config import DEFAULT_MZ_TOL, ICO_PATH, PLATFORM_IS_WINDOWS
 
         
 class SetupWindow():
@@ -83,20 +82,14 @@ class SetupWindow():
             row 2, column 0 -> "target list"  TODO (Dylan Ross): add checkbox for targeted variant
             row 2, column 1 -> input box
             row 2, column 2 -> [...] button -> file select dialog
-            row 3, column 0 -> "RT tolerance"
+            row 3, column 0 -> "m/z tolerance"
             row 3, column 1 -> input box
-            row 3, column 2 -> "min"
-            row 4, column 0 -> "RT extraction window"
+            row 3, column 2 -> "Da"
+            row 4, column 0 -> "deuterium label"
             row 4, column 1 -> input box
-            row 4, column 2 -> "min"
-            row 5, column 0 -> "m/z tolerance"
-            row 5, column 1 -> input box
-            row 5, column 2 -> "Da"
-            row 6, column 0 -> "deuterium label"
-            row 6, column 1 -> input box
-            row 7, column 0 -> "deuterium label in neutral loss"
-            row 7, column 1 -> checkbox
-            row 8, column 2 -> [Process Data] button
+            row 5, column 0 -> "deuterium label in neutral loss"
+            row 5, column 1 -> checkbox
+            row 6, column 2 -> [Process Data] button
         """
         self.upper_frm = ttk.Frame(self.main_frm, padding=(10, 10, 10, 10))
         self.upper_frm.grid(row=0, column=0, sticky=(N, S, E, W))
@@ -108,8 +101,6 @@ class SetupWindow():
         self.upper_frm.rowconfigure(4)
         self.upper_frm.rowconfigure(5)
         self.upper_frm.rowconfigure(6)
-        self.upper_frm.rowconfigure(7)
-        self.upper_frm.rowconfigure(8)
         self.upper_frm.columnconfigure(0)
         self.upper_frm.columnconfigure(1)
         self.upper_frm.columnconfigure(2)
@@ -117,33 +108,39 @@ class SetupWindow():
         # add all of the labels
         self._add_labels_to_upper_frm()
         # add the file select [...] buttons
-        self.upper_frm_ozfilesel_mza_btn = ttk.Button(self.upper_frm, text='.mza', command=self._ozfilesel_mza_cb)
+        self.upper_frm_ozfilesel_mza_btn = ttk.Button(self.upper_frm, 
+                                                      text='.mza or .uimf', 
+                                                      command=self._ozfilesel_mza_uimf_cb)
         self.upper_frm_ozfilesel_mza_btn.grid(row=1, column=2, sticky=(W, E))
         self.upper_frm_ozfilesel_d_btn = ttk.Button(self.upper_frm, text='.d', command=self._ozfilesel_d_cb)
         self.upper_frm_ozfilesel_d_btn.grid(row=1, column=3, sticky=(W,))
         # disable .d file selection if not running on windows
         if not PLATFORM_IS_WINDOWS:
             self.upper_frm_ozfilesel_d_btn["state"] = "disabled"
-        self.upper_frm_tarlstsel_btn = ttk.Button(self.upper_frm, text='...', command=self._tarlstsel_cb)
+        self.upper_frm_tarlstsel_btn = ttk.Button(self.upper_frm, text='.csv', command=self._tarlstsel_cb)
         self.upper_frm_tarlstsel_btn.grid(row=2, column=2, sticky=(W,))
         # add the entries
         self._add_entries_to_upper_frame()
         # add d label in nl checkbutton
         self.upper_frm_dlblnl_cbn_var = IntVar()
         self.upper_frm_dlblnl_cbn = ttk.Checkbutton(self.upper_frm, variable=self.upper_frm_dlblnl_cbn_var)
-        self.upper_frm_dlblnl_cbn.grid(row=7, column=1, sticky=(W,))
+        self.upper_frm_dlblnl_cbn.grid(row=5, column=1, sticky=(W,))
         # add process data button
         self.upper_frm_procdata_btn = ttk.Button(self.upper_frm, text='Process Data', command=self._procdata_btn_cb)
-        self.upper_frm_procdata_btn.grid(row=8, column=2, sticky=(E,))
+        self.upper_frm_procdata_btn.grid(row=6, column=2, sticky=(E,))
 
-    def _ozfilesel_mza_cb(self):
+    def _ozfilesel_mza_uimf_cb(self):
         """
-        callback for when ozid data file is selected (.mza)
+        callback for when ozid data file is selected (.mza or .uimf)
         """
         # offer a dialog that accepts .mza
         oz_file = filedialog.askopenfilename(title='Select OzID data file', 
-                                             filetypes=[('MZA', '.mza')])
+                                             filetypes=[
+                                                 ('MZA', '.mza'),
+                                                 ("UIMF", ".uimf")
+                                             ])
         self.upper_frm_ent_vars[0].set(oz_file)
+        self.upper_frm_ents[0].xview_moveto(1)
 
     def _ozfilesel_d_cb(self):
         """
@@ -157,6 +154,7 @@ class SetupWindow():
         oz_file = self._convert_agilent_d(oz_file_d)
         # set the file selection to the newly converted .mza file
         self.upper_frm_ent_vars[0].set(oz_file)
+        self.upper_frm_ents[0].xview_moveto(1)
 
     def _convert_agilent_d(self, oz_file_d):
         """ 
@@ -193,6 +191,7 @@ class SetupWindow():
         target_list = filedialog.askopenfilename(title='Select target list file', 
                                              filetypes=[('Comma separated values', '.csv')])
         self.upper_frm_ent_vars[1].set(target_list)
+        self.upper_frm_ents[1].xview_moveto(1)
 
     def _procdata_btn_cb(self):
         """
@@ -206,17 +205,15 @@ class SetupWindow():
                                   self.upper_frm_ent_vars[1].get(),
                                   self.upper_frm_ent_vars[2].get(),
                                   self.upper_frm_ent_vars[3].get(),
-                                  self.upper_frm_ent_vars[4].get(),
-                                  self.upper_frm_ent_vars[5].get(),
                                   bool(self.upper_frm_dlblnl_cbn_var.get()))
         self._close()
 
     def _add_labels_to_upper_frm(self):
         """
         """
-        self.upper_frm_lbls = [None, None, None, None, None, None, None, None]
+        self.upper_frm_lbls = [None, None, None, None, None, None]
         labels = ['Process OzID Data', 
-                  'OzID data file', 'target list', 'RT tolerance', 'RT extraction window', 
+                  'OzID data file', 'target list', 
                   'm/z tolerance', 'deuterium label', 'deuterium label in NL']
         for i, label in enumerate(labels):
             if i == 0:
@@ -229,18 +226,16 @@ class SetupWindow():
     def _add_entries_to_upper_frame(self):
         """
         """
-        self.upper_frm_ents = [None, None, None, None, None, None]
-        ent_widths = [40, 40, 5, 5, 5, 5]
-        stickies = [(W, E), (W, E), (W,), (W,), (W,), (W,)]
-        self.upper_frm_ent_vars = [StringVar(), StringVar(), DoubleVar(), DoubleVar(), DoubleVar(), IntVar()]
-        for i in range(6):
+        self.upper_frm_ents = [None, None, None, None]
+        ent_widths = [40, 40, 5, 5]
+        stickies = [(W, E), (W, E), (W,), (W,)]
+        self.upper_frm_ent_vars = [StringVar(), StringVar(), DoubleVar(), IntVar()]
+        for i in range(4):
             self.upper_frm_ents[i] = ttk.Entry(self.upper_frm, justify=RIGHT, 
                                                width=ent_widths[i], textvariable=self.upper_frm_ent_vars[i])
             self.upper_frm_ents[i].grid(row=i + 1, column=1, sticky=stickies[i])
         # set a few default values
-        self.upper_frm_ent_vars[2].set(DEFAULT_RT_TOL)
-        self.upper_frm_ent_vars[3].set(DEFAULT_RT_EXT_WIN)
-        self.upper_frm_ent_vars[4].set(DEFAULT_MZ_TOL)
+        self.upper_frm_ent_vars[2].set(DEFAULT_MZ_TOL)
 
     def _setup_lower_frame(self):
         """
