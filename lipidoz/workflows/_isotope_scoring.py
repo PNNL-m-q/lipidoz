@@ -73,14 +73,15 @@ def _load_target_list_alt(target_list_file, ignore_preferred_ionization=True):
     names, adducts, rts = np.loadtxt(target_list_file, dtype=str, delimiter=',', skiprows=1, 
                                      unpack=True, comments='#', ndmin=2)
     # remove duplicate entries from the target list (by ignoring RT)
-    target_lipids = [parse_lipid_name(name) for name in names]
+    target_lipids = [parse_lipid_name(name.split("|")[-1]) for name in names]
     adducts = [adduct for adduct in adducts]
     # perform as much input validation as possible ahead of time
     for i, (name, lipid, adduct) in enumerate(zip(names, target_lipids, adducts)):
         line = i + 2
         if lipid is None:
-            msg = '_load_target_list: name "{}" was not able to be parsed as lipid (line: {})'
-            raise ValueError(msg.format(name, line))
+            raise ValueError(
+                f"_load_target_list: name '{name}' was not able to be parsed as lipid (line: {line})"
+            )
         if lipid.__class__.__name__ != 'LipidWithChains':
             msg = ('_load_target_list: lipid {} has more than 1 acyl chain ({}) but individual chain compositions'
                    ' were not provided (line: {})')

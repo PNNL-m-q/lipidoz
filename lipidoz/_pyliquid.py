@@ -13,12 +13,12 @@ from mzapy.isotopes import monoiso_mass
 
 
 # regex for parsing lipid information from a lipid name in standard abbreviated format
-_LIPID_NAME_REGEX = """
+_LIPID_NAME_REGEX = re.sub(r"\s+", "", """
     ^
     (?P<lcl>
         [A-Za-z123]+
     )
-    [(]
+    [SPACE]
     (?P<fam>
         O-|P-|d
     )*
@@ -113,9 +113,8 @@ _LIPID_NAME_REGEX = """
             )*
         )
     ){0,1}
-    [)]
     $
-"""
+""").replace('[SPACE]', '[ ]')
 
 
 # define valid acyl chain types
@@ -1172,7 +1171,7 @@ def parse_lipid_name(name):
         instance of Lipid (or subclass), or ``None`` if unable to parse
     """
     # strip out the whitespace from the lipid name regex
-    mat = re.search(re.sub(r'\s+', '', _LIPID_NAME_REGEX), name)
+    mat = re.search(_LIPID_NAME_REGEX, name)
     if mat is None:
         # name does not match the pattern
         return None
