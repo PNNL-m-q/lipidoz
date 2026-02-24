@@ -7,7 +7,8 @@ Dylan Ross (dylan.ross@pnnl.gov)
 """
 
 
-from typing import Optional, Tuple, Union, Dict
+from typing import Optional, Tuple, Union, Dict, Any
+from collections.abc import Mapping
 from sqlite3 import connect
 import io
 
@@ -200,7 +201,7 @@ def _debug_handler(debug_flag, debug_cb, msg=None, img=None):
                 raise ValueError(ve)
 
 
-def new_lipidoz_results():
+def new_lipidoz_results() -> Mapping[str, Optional[Mapping[Any, Any]]] :
     """
     create a new lipidoz results dictionary with empty fields 
     """

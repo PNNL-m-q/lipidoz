@@ -17,9 +17,10 @@ Dylan Ross (dylan.ross@pnnl.gov)
 
 
 import io
-from typing import Optional, Any, Dict, Tuple, List
+from typing import Optional, Any, Dict, Tuple, List, Callable
 from collections.abc import Generator
 import threading
+from itertools import product
 
 from matplotlib import pyplot as plt, rcParams, use as mpuse
 import numpy as np
@@ -691,6 +692,319 @@ def score_db_pos_isotope_dist_polyunsat(oz_data: OzData,
         #     rt_min, rt_max = peak_rt - rt_tol, peak_rt + rt_tol
         #     is_saturated = False
         # ----------------------------------------------------
+        # extract MS1 and score (using RT bounds)
+        if (pre_scoring := _extract_ms1_and_calc_isotope_score(oz_data, pre_target_mz, pre_target_abun, 
+                                                               peak_rt - peak_wt / 2, peak_rt + peak_wt / 2, 
+                                                               ms1_fit_method, 
+                                                               debug_flag, debug_cb)) is not None:
+            # unpack and add into results
+            (pre_mz_ppm, pre_abun_pct, pre_mz_cos_dist), pre_iso_dist_img = pre_scoring
+            results['precursor'] = {
+                'target_mz': pre_target_mz[0],
+                'target_rt': None,                  # not using target RT anymore
+                'xic_peak_rt': peak_rt,
+                'xic_peak_ht': peak_ht,
+                'xic_peak_fwhm': peak_wt,
+                'mz_ppm': pre_mz_ppm, 
+                'abun_percent': pre_abun_pct, 
+                'mz_cos_dist': pre_mz_cos_dist,
+                'isotope_dist_img': pre_iso_dist_img,
+                'xic_fit_img': pre_xic_fit_img,
+                'saturation_corrected': False  # as noted above, this is currently disabled
+            }
+            # iterate over (db_idx, db_pos) pairs and perform analysis on the corresponding fragments
+            results['fragments'] = {}
+            i = 1
+            for i, (db_idx, db_pos) in enumerate(dbidx_dbpos):
+                # check for a stop event and break the loop if the early stop event gets set
+                # this will eventually fall through and not yield anything so that should be
+                # sufficient, right? Yes.
+                if early_stop_event is not None and early_stop_event.is_set():
+                    break
+                # ITERATE THROUGH DB POSITIONS AND LOOK FOR FRAGMENTS
+                #----------------------------------------------------
+                if db_idx not in results['fragments']:
+                    results['fragments'][db_idx] = {}
+                results['fragments'][db_idx][db_pos] = {}
+                msg = f"----------{db_idx=},{db_pos=}----------"
+                _debug_handler(debug_flag, debug_cb, msg=msg)
+                # get aldehyde and criegee formulas
+                ald_formula, crg_formula = _polyunsat_ald_crg_formula(precursor_formula, db_pos, db_idx)
+                if remove_d is not None:
+                    # adjust the molecular formulas to get rid of D7 labels in neutral loss fragments
+                    # applicable to SPLASH lipid standards only
+                    ald_formula.pop('D')
+                    ald_formula['H'] += remove_d
+                    crg_formula.pop('D')
+                    crg_formula['H'] += remove_d
+                # scoring for aldehyde
+                ald_results = _do_fragment_scoring(oz_data, 'aldehyde', ald_formula, 
+                                                   mz_tol, ms1_fit_method,
+                                                   peak_rt, peak_wt, *pre_xic, 
+                                                   debug_flag, debug_cb)
+                # scoring for criegee
+                crg_results = _do_fragment_scoring(oz_data, 'criegee', crg_formula, 
+                                                   mz_tol, ms1_fit_method,
+                                                   peak_rt, peak_wt, *pre_xic, 
+                                                   debug_flag, debug_cb)
+                # NOTE: There is no use keeping fragment results that are incomplete (i.e., no
+                #       XIC fit image or no isotope distribution image)
+                ald_results = ald_results if (ald_results is not None
+                                              and ald_results["isotope_dist_img"] is not None 
+                                              and ald_results["xic_fit_img"] is not None) else None
+                crg_results = crg_results if (crg_results is not None
+                                              and crg_results["isotope_dist_img"] is not None 
+                                              and crg_results["xic_fit_img"] is not None) else None
+                results['fragments'][db_idx][db_pos]['aldehyde'] = ald_results 
+                results['fragments'][db_idx][db_pos]['criegee'] = crg_results
+                if info_cb is not None:
+                    msg = f"INFO: {i + 1} of {n_combos} done"
+                    info_cb(msg)
+                #----------------------------------------------------
+            # finally, yield the results for this target + XIC peak
+            yield results
+        else:  # if unable to do precursor scoring, report that 
+            _debug_handler(debug_flag, debug_cb, msg='unable to determine precursor scores')
+            if info_cb is not None and debug_flag is None:  # avoid duplication of messages
+                info_cb('INFO: unable to determine precursor scores')
+            #return None - now we yield results, so yield nothing instead
+    # report that no peak was found for the precursor if the flag was not set
+    if not found_peak:
+        _debug_handler(debug_flag, debug_cb, msg='unable to find RT peak for precursor')
+        if info_cb is not None and debug_flag is None:  # avoid duplication of messages
+            info_cb('INFO: unable to find RT peak for precursor')
+        #return None - now we yield results, so yield nothing instead
+    _debug_handler(debug_flag, debug_cb, msg='------------------------------')
+
+
+def _possible_unsat_fas_from_sum_comp(
+    n_chains: int, 
+    sum_c: int, 
+    sum_u: int, 
+    min_c: int = 12, 
+    max_c: int = 24, 
+    odd_c: bool = True
+) -> List[Tuple[int, int]] :
+    """ get the set of possible unsaturated FAs that could fit in this sum composition """
+    def get_c_u_combos(n_chains: int,
+                   sum_c: int,
+                   sum_u: int, 
+                   min_c: int, 
+                   max_c: int, 
+                   odd_c: bool,
+                   max_u: Optional[int | Callable[[int], int]] = None
+                   ) -> Generator[Tuple[int, int], None, None] :
+        """
+        ! COPIED FROM: https://github.com/PNNL-m-q/lipidimea/blob/main/lipidimea/_lipidlib/lipids.py#L468 !
+
+        I did not want to add lipidimea package as a dependency and I just needed this one function
+        so I copied this over, don't @ me. Copyright/license/disclaimer from there included below.
+
+        ------------------ LICENSE ---------------------
+
+        Copyright 2023 Battelle Memorial Institute
+
+        Redistribution and use in source and binary forms, with or without
+        modification, are permitted provided that the following conditions are met:
+
+        1. Redistributions of source code must retain the above copyright notice, this
+        list of conditions and the following disclaimer.
+
+        2. Redistributions in binary form must reproduce the above copyright notice,
+        this list of conditions and the following disclaimer in the documentation
+        and/or other materials provided with the distribution.
+
+        THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+        ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+        WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+        DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+        FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+        DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+        SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+        CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+        OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+        OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+        ------------------ DISCLAIMER ---------------------
+
+        This material was prepared as an account of work sponsored by an agency of the
+        United States Government.  Neither the United States Government nor the United
+        States Department of Energy, nor Battelle, nor any of their employees, nor any
+        jurisdiction or organization that has cooperated in the development of these
+        materials, makes any warranty, express or implied, or assumes any legal
+        liability or responsibility for the accuracy, completeness, or usefulness or
+        any information, apparatus, product, software, or process disclosed, or
+        represents that its use would not infringe privately owned rights.
+
+        Reference herein to any specific commercial product, process, or service by
+        trade name, trademark, manufacturer, or otherwise does not necessarily
+        constitute or imply its endorsement, recommendation, or favoring by the United
+        States Government or any agency thereof, or Battelle Memorial Institute. The
+        views and opinions of authors expressed herein do not necessarily state or
+        reflect those of the United States Government or any agency thereof.
+
+                        PACIFIC NORTHWEST NATIONAL LABORATORY
+                                    operated by
+                                        BATTELLE
+                                        for the
+                        UNITED STATES DEPARTMENT OF ENERGY
+                            under Contract DE-AC05-76RL01830
+
+        -----------------------------------------------------
+
+        figure out all possible combinations of FA composition that can produce 
+        a lipid"s sum composition
+
+        Parameters
+        ----------
+        n_chains : ``int``
+            number of FA chains
+        sum_c : ``int``
+        sum_u : ``int``
+            sum composition
+        min_c : ``int``
+        max_c : ``int``
+            minimum/maximum FA carbons
+        odd_c : ``bool``
+            include FAs with odd number of carbons
+        max_u : ``int`` or ``function(int) -> int`` or ``None``, default=None
+            If not None, specify a maximum number of unsaturations to include in a single chain.
+            This can be an `int` to specify a static limit, or a function that takes the number
+            of carbons (`int`) in the chain and returns the maximum number of unsaturations (`int`) 
+        """
+        # lipid.fa_carbon - total carbons
+        # lipid.fa_unsat - total unsaturations
+        # lipid.n_chains - number of acyl chains
+        c_int = 1 if odd_c else 2
+        # function for dynamically changing the max unsaturation level
+        def f_max_u(c):
+            if max_u is None:
+                return sum_u
+            elif type(max_u) is int:
+                return max_u
+            else:
+                # max_u is a function not an int
+                return max_u(c)  # type: ignore
+        # TODO: Clean this up, it is hard to read
+        fas = set()
+        for c_perm in set([tuple(sorted(_)) for _ in product(range(min_c, max_c + 1, c_int), repeat=n_chains) if sum(_) == sum_c]):
+            for u_perm in [_ for _ in product(*[range(0, f_max_u(c) + 1) for c in c_perm]) if sum(_) == sum_u]:  # type: ignore
+                for c, u in zip(c_perm, u_perm):
+                    fas.add((c, u))
+        # TODO: this does not need to be two steps... ?
+        for c, u in fas:
+            yield c, u
+    #============================================
+    return [
+        (c, u)
+        for c, u in get_c_u_combos(
+            n_chains,
+            sum_c,
+            sum_u,
+            min_c,
+            max_c,
+            odd_c,
+            max_u=lambda c: c // 2 + c % 2 - 1
+        )
+        if u > 0
+    ]
+
+
+def score_db_pos_isotope_dist_polyunsat_sumcomp(oz_data: OzData, 
+                                                precursor_formula: Formula, 
+                                                n_chains: int, 
+                                                sum_c: int,
+                                                sum_u: int, 
+                                                mz_tol: float, 
+                                                rt_fit_method: str = 'gauss', 
+                                                ms1_fit_method: str = 'localmax', 
+                                                remove_d: Optional[int] = None, 
+                                                debug_flag: Optional[str] = None,
+                                                debug_cb: Optional[Any] = None, 
+                                                info_cb: Optional[Any] = None, 
+                                                early_stop_event: Optional[threading.Event] = None
+                                                ) -> Generator[Dict[str, Any], Any, Any] :
+    """
+    performs isotope distribution scoring for a range of potential double-bond positions for polyunsaturated lipids, 
+    also works for monounsaturated lipids, and essentially does nothing for completely saturated lipids
+
+    Parameters
+    ----------
+    oz_data 
+        UIMF data interface instance for OzID data
+    precursor_formula
+        chemical formula of the precursor ion
+    n_chains
+        number of acyl chains
+    sum_c 
+        number of carbons in precursor (sum composition)
+    sum_u 
+        number of DB in each precursor fatty acid (sum composition)
+    mz_tol 
+        m/z tolerance for extracting XICs
+    rt_fit_method 
+        specify method to use for fitting the RT peak ('gauss' works best in testing)
+    ms1_fit_method 
+        specify method to use for fitting MS1 spectrum ('localmax' works best in testing)
+    remove_d 
+        adjust molecular formulas to get rid of D labels on fatty acid tail that are part of the neutral loss
+        (specific to SPLASH lipids)
+    debug_flag 
+        specifies how to dispatch the message and/or plot, None to do nothing
+    debug_cb 
+        callback function that takes the debugging message as an argument, can be None if
+        debug_flag is not set to 'textcb'
+    info_cb 
+        optional callback function that gets called at several intermediate steps and gives information about data
+        processing details. Callback function takes a single argument which is a ``str`` info message
+    early_stop_event 
+        When the workflow is running in its own thread and this event gets set, processing is stopped gracefully
+
+    Yields
+    ------
+    result
+        dictionary containing analysis results
+    """
+    # use non GUI backend if debug is set to False (required for lipidoz_gui)
+    if debug_flag != 'full':
+        mpuse('Agg') 
+    _debug_handler(debug_flag, debug_cb, msg='----------precursor----------')
+    # predict precursor isotope distribution
+    pre_target_mz, pre_target_abun = predict_m_m1_m2(precursor_formula)
+    _debug_handler(debug_flag, debug_cb, msg=f"mz={pre_target_mz[0]:.4f}")
+    # compute bounds of db indices and positions, keep only unique pairs
+    # this does not need to be repeated for every XIC peak, so just do it once ahead of time
+    dbidx_dbpos = set()
+    for fac, fau in _possible_unsat_fas_from_sum_comp(n_chains, sum_c, sum_u):
+        if fac > 0:
+            for db_idx in range(1, fau + 1):
+                dbp_min, dbp_max = _calc_dbp_bounds(fac, fau, db_idx)
+                for db_pos in range(dbp_min, dbp_max + 1):
+                    dbidx_dbpos.add((db_idx, db_pos))
+    n_combos = len(dbidx_dbpos)
+    if info_cb is not None:
+        msg = 'INFO: there are {} combinations of (db_idx, db_pos) to examine'
+        info_cb(msg.format(n_combos))
+    # get XIC for  target_rt +/- 0.5 using precursor m/z +/- mz_tol
+    mz_min, mz_max = pre_target_mz[0] - mz_tol, pre_target_mz[0] + mz_tol
+    pre_xic = oz_data.collect_xic_arrays_by_mz(mz_min, mz_max)
+    # flag: was a peak found for the precursor?
+    found_peak = False
+    # get the fitted peak info from the xic
+    for (peak_rt, peak_ht, peak_wt), pre_xic_fit_img in _fit_xic_rt(*pre_xic, rt_fit_method, 
+                                                                    debug_flag, debug_cb):
+        if info_cb is not None:
+            msg = f"INFO: precursor peak RT = {peak_rt:.2f} min"
+            info_cb(msg)
+        # check for a stop event and break the loop if the early stop event gets set
+        if early_stop_event is not None and early_stop_event.is_set():
+            break
+        # set flag: peak was found
+        found_peak = True
+        # NOTE: Results starts empty, then different pieces of info get added to it and if a sufficient
+        #       portion of the total processing is successful it gets yielded. Otherwise nothing is yielded. 
+        #       separate results get yielded for each XIC peak that was found.
+        results = {}
         # extract MS1 and score (using RT bounds)
         if (pre_scoring := _extract_ms1_and_calc_isotope_score(oz_data, pre_target_mz, pre_target_abun, 
                                                                peak_rt - peak_wt / 2, peak_rt + peak_wt / 2, 

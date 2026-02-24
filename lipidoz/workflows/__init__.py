@@ -8,6 +8,7 @@ Dylan Ross (dylan.ross@pnnl.gov)
 
 from lipidoz.workflows._isotope_scoring import (
     run_isotope_scoring_workflow,
+    run_isotope_scoring_workflow_sumcomp,
     run_isotope_scoring_workflow_infusion,
     run_isotope_scoring_workflow_targeted,
     save_isotope_scoring_results,

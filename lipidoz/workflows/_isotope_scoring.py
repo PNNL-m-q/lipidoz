@@ -27,7 +27,8 @@ from mzapy.isotopes import valid_ms_adduct, ms_adduct_formula
 
 from lipidoz import __version__ as VER
 from lipidoz.isotope_scoring import (
-    score_db_pos_isotope_dist_polyunsat, 
+    score_db_pos_isotope_dist_polyunsat,
+    score_db_pos_isotope_dist_polyunsat_sumcomp, 
     score_db_pos_isotope_dist_polyunsat_infusion,
     score_db_pos_isotope_dist_targeted
 )
@@ -54,7 +55,6 @@ def _load_target_list_alt(target_list_file, ignore_preferred_ionization=True):
         when interpreting the results), retention times are still included in the target list, but
         any duplicates (_i.e._, same target lipid but different target RT) get removed in this
         function before returning lists of target lipids.
-
 
     Parameters
     ----------
@@ -96,6 +96,41 @@ def _load_target_list_alt(target_list_file, ignore_preferred_ionization=True):
                 raise ValueError(msg.format(name, lipid.ionization, adduct, line))
     # only return unique (lipid, adduct) combinations
     return map(list, zip(*set([(lpd, adduct) for lpd, adduct in zip(target_lipids, adducts)])))
+
+
+def _load_target_list_sumcomp(target_list_file):
+    """
+    loads target list from .csv file, performs some basic validation
+    
+    Targets are at the level of sum composition
+
+    Parameters
+    ----------
+    target_list_file : ``str``
+        filename and path for target list (.csv format)
+
+    Returns
+    -------
+    target_lipids : ``list(pyliquid.lipids.LipidWithChains)``
+        target lipids
+    target_adducts : ``list(str)``
+        MS adducts of target lipids
+    """
+    names, adducts, rts = np.loadtxt(target_list_file, dtype=str, delimiter=',', skiprows=1, 
+                                     unpack=True, comments='#', ndmin=2)
+    # perform as much input validation as possible ahead of time
+    # skip any bad rows
+    target_lipids, target_adducts = [], []
+    for name, lipid, adduct in zip(
+        names, 
+        [parse_lipid_name(name.split("|")[-1]) for name in names], 
+        adducts
+    ):
+        if lipid is not None:
+            target_lipids.append(lipid)
+            target_adducts.append(str(adduct))
+    # only return unique (lipid, adduct) combinations
+    return map(list, zip(*set([(lpd, adduct) for lpd, adduct in zip(target_lipids, target_adducts)])))
 
 
 def _load_target_list_targeted(target_list_file, ignore_preferred_ionization, rt_correction_func):
@@ -222,7 +257,7 @@ def run_isotope_scoring_workflow(oz_data_file: str,
     The target list should have columns containing the following information (in order, 1 header row is skipped):
     
     * lipid name in standard abbreviated format, with FA composition fully specified,
-      *e.g.*, PC(18:1_16:0) or TG(16:0/18:1/20:2)
+      *e.g.*, PC 18:1_16:0 or TG 16:0/18:1/20:2
     * MS adduct, *e.g.*, [M+H]+ or [M-2H]2-
     * target retention time
 
@@ -361,6 +396,238 @@ def run_isotope_scoring_workflow(oz_data_file: str,
     return results
 
 
+def _filter_single_result_on_scores(
+    result: Dict[str, Any],
+    max_mz_ppm: float, 
+    max_abun_percent: float, 
+    max_mz_cos_dist: float,
+    max_rt_cos_dist: float
+) -> Optional[Dict[str, Any]] : 
+    """  
+    Get rid of any fragment data from a single lipid analysis result that 
+    does not meet a minimum set of threshold scores.
+
+    Checks the precursor first, and if that looks bad enough, then returns None
+    and does not bother checking the fragment scores. Otherwise, checks the scores
+    for all of the fragments and returns the results dict with only the entries that
+    have sufficient scores. If after filtering there are no fragments left, just 
+    discard the entire result and return None
+    """
+    # check the precursor first
+    if (
+        (result["precursor"]["mz_ppm"] is not None and result["precursor"]["mz_ppm"] > max_mz_ppm)
+        | (result["precursor"]["abun_percent"] is not None and result["precursor"]["abun_percent"] > max_abun_percent)
+        | (result["precursor"]["mz_cos_dist"] is not None and result["precursor"]["mz_cos_dist"] > max_mz_cos_dist)
+    ) : 
+        # precursor does not meet criteria, do not keep checking
+        return None
+    # get the subset of fragments that have adequate scores
+    subset = {
+        "precursor": result["precursor"],
+        "fragments": {
+            db_idx: {}
+            for db_idx in result["fragments"].keys()
+        }
+    }
+    for db_idx, db_idx_data in result["fragments"].items():
+        for db_pos, db_pos_data in db_idx_data.items():
+            ald = db_pos_data["aldehyde"]
+            crg = db_pos_data["criegee"]
+            # keep the results if either the aldehyde OR criegee fragment meets
+            # the cutoff criteria
+            ald_flag = False
+            if ald is not None:
+                ald_flag = (
+                    (ald["abun_percent"] <= max_abun_percent)
+                    & (ald["mz_cos_dist"] <= max_mz_cos_dist)
+                    & (ald["rt_cos_dist"] <= max_rt_cos_dist)
+                )
+            crg_flag = False
+            if crg is not None:
+                crg_flag = ( 
+                    (crg["abun_percent"] <= max_abun_percent)
+                    & (crg["mz_cos_dist"] <= max_mz_cos_dist)
+                    & (crg["rt_cos_dist"] <= max_rt_cos_dist)
+                )
+            if ald_flag | crg_flag : 
+                subset["fragments"][db_idx][db_pos] = db_pos_data
+    # get rid of any DB indices that are empty
+    subset["fragments"] = {k: v for k, v in subset["fragments"].items() if v != {}}
+    # return the results with fragment subset or None if there weren't any left
+    if len(subset["fragments"]) == 0:
+        return None
+    return subset
+
+
+def run_isotope_scoring_workflow_sumcomp(oz_data_file: str, 
+                                         target_list_file: str, 
+                                         mz_tol: float, 
+                                         max_mz_ppm: float = 40., 
+                                         max_abun_percent: float = 200., 
+                                         max_mz_cos_dist: float = 0.75,
+                                         max_rt_cos_dist: float = 0.75,
+                                         d_label: Optional[int] = None, 
+                                         d_label_in_nl: Optional[bool] = None, 
+                                         progress_cb: Optional[Any] = None, 
+                                         info_cb: Optional[Any] = None, 
+                                         early_stop_event: Optional[threading.Event] = None, 
+                                         debug_flag: Optional[str] = None, 
+                                         debug_cb: Optional[Any] = None
+                                         ) -> Optional[Dict[str, Any]] :
+    """
+    workflow for performing isotope scoring for the determination of db positions. 
+    inputs are the data file and target list file, output is a dictionary containing metadata about the analysis and
+    the analysis results for all of the lipids in the target list. 
+    The target list should have columns containing the following information (in order, 1 header row is skipped):
+    
+    * lipid name in standard abbreviated format, at sum composition level
+      *e.g.*, PC 18:1_16:0 or TG 16:0/18:1/20:2
+    * MS adduct, *e.g.*, [M+H]+ or [M-2H]2-
+    * target retention time
+
+    Parameters
+    ----------
+    oz_data_file : ``str``
+        filename and path for OzID data (.uimf format)
+    target_list_file : ``str``
+        filename and path for target list (.csv format)
+    mz_tol : ``float``
+        m/z tolerance for extracting XICs
+    d_label : ``int``, optional
+        number of deuteriums in deuterium-labeled standards (*i.e.* SPLASH and Ultimate SPLASH mixes)
+    d_label_in_nl : ``bool``, optional
+        if deuterium labels are present, indicates whether they are included in the neutral loss during OzID 
+        fragmentation, this is False if the deuteriums are on the lipid head group and True if they are at the end of 
+        a FA tail (meaning that the aldehyde and criegee fragment formulas must be adjusted to account for loss of the
+        label during fragmentataion)
+    progress_cb : ``function``, optional
+        option for a callback function that gets called every time an individual lipid species has been processed, this
+        callback function should take as arguments (in order):
+
+        * lipid name (``str``)
+        * adduct (``str``)
+        * current position in target list (``int``)
+        * total lipids in target list(``int``)
+
+    info_cb : ``function``, optional
+        optional callback function that gets called at several intermediate steps and gives information about data
+        processing details. Callback function takes a single argument which is a ``str`` info message
+    early_stop_event : ``threading.Event``, optional
+        When the workflow is running in its own thread and this event gets set, processing is stopped gracefully
+    debug_flag : ``str``, optional
+        specifies how to dispatch the message and/or plot, None to do nothing
+    debug_cb : ``func``, optional
+        callback function that takes the debugging message as an argument, can be None if
+        debug_flag is not set to 'textcb'
+
+    Returns
+    -------
+    isotope_scoring_results 
+        results dictionary with metadata and scoring information
+    """
+    # store metadata
+    results = {
+        'metadata': {
+            'workflow': 'isotope_scoring_sumcomp',
+            'lipidoz_version': VER,
+            'oz_data_file': oz_data_file,
+            'target_list_file': target_list_file, 
+            'rt_tol': None, 
+            'rt_peak_win': None, 
+            'mz_tol': mz_tol,
+            'd_label': d_label, 
+            'd_label_in_nl': d_label_in_nl,
+        },
+        'targets': {},
+    }
+    # load the target list
+    target_lipids, target_adducts = _load_target_list_sumcomp(target_list_file)
+    n = len(target_lipids)
+    if info_cb is not None:
+        msg = 'INFO: loaded target list: {} ({} targets)'.format(target_list_file, n)
+        info_cb(msg)
+    # load the data 
+    match (ext := os.path.splitext(oz_data_file)[-1]):
+        case ".uimf":
+            oz_data = CustomUReader(oz_data_file)
+            # additional initialization, skip Frame 1 
+            oz_data.accum_frame_spectra_allscans(skip_frame_1=True)
+        case ".mza":
+            oz_data = MZA(oz_data_file, cache_scan_data=True, mza_version="new")
+        case _:
+            raise ValueError(f"unrecognized raw data file extension: {ext}")
+    if info_cb is not None:
+        msg = "INFO: loading OzID data file ..."
+        info_cb(msg)
+    if info_cb is not None:
+        msg = 'INFO: loaded OzID data file: {}'.format(oz_data_file)
+        info_cb(msg)
+    # main data processing
+    i = 1
+    for tlipid, tadduct in sorted(zip(target_lipids, target_adducts), 
+                                  key=lambda x: str(x[0])):
+        lpd_str = str(tlipid)
+        # check for a stop event
+        if early_stop_event is not None and early_stop_event.is_set():
+            if info_cb is not None and debug_flag is None:  # avoid duplication of messages
+                info_cb('INFO: EARLY STOP EVENT HAS BEEN SET!')
+            _debug_handler(debug_flag, debug_cb, msg='early stop event has been set')
+            oz_data.close()
+            return None
+        if info_cb is not None:
+            msg = 'INFO: analyzing target lipid {} {}'.format(tlipid, tadduct)
+            info_cb(msg)
+        if d_label is not None:
+            # adjust formula by replacing protons with deuterium label
+            tlipid.formula['H'] -= d_label
+            tlipid.formula['D'] = d_label
+        # check for SPLASH lipids
+        remove_d = d_label if ((d_label is not None) and d_label_in_nl) else None
+        adduct_formula = ms_adduct_formula(tlipid.formula, tadduct)
+        # run the analysis for individual lipid species
+        msg = f"\n{lpd_str} {tadduct}\n=========================="
+        _debug_handler(debug_flag, debug_cb, msg=msg)
+        for lipid_result_raw in score_db_pos_isotope_dist_polyunsat_sumcomp(
+            oz_data, 
+            adduct_formula,
+            tlipid.n_chains,
+            tlipid.fa_carbon,
+            tlipid.fa_unsat,
+            mz_tol, 
+            remove_d=remove_d, 
+            debug_flag=debug_flag, 
+            debug_cb=debug_cb, 
+            info_cb=info_cb,
+            early_stop_event=early_stop_event
+        ):
+            if (
+                lipid_result := _filter_single_result_on_scores(
+                    lipid_result_raw, 
+                    max_mz_ppm, 
+                    max_abun_percent, 
+                    max_mz_cos_dist, 
+                    max_rt_cos_dist
+                )
+            ) is not None :
+                # add individual result to full results
+                # but only if the scores were good enough
+                rt_str = f"{lipid_result["precursor"]["xic_peak_rt"]:.2f}min"
+                if lpd_str in results['targets']:
+                    if tadduct in results['targets'][lpd_str]:
+                        results['targets'][lpd_str][tadduct][rt_str] = lipid_result
+                    else:
+                        results['targets'][lpd_str][tadduct] = {rt_str: lipid_result}
+                else:
+                    results['targets'][lpd_str] = {tadduct: {rt_str: lipid_result}}
+        # call progress callback function if provided
+        if progress_cb is not None:
+            progress_cb(lpd_str, tadduct, i, n)
+            i += 1
+    # clean up
+    oz_data.close()
+    return results
+
+
 def run_isotope_scoring_workflow_targeted(oz_data_file, target_list_file, rt_tol, rt_peak_win, mz_tol, 
                                           d_label=None, d_label_in_nl=None, progress_cb=None, info_cb=None, 
                                           early_stop_event=None, debug_flag=None, debug_cb=None, rt_correction_func=None, 
@@ -375,7 +642,7 @@ def run_isotope_scoring_workflow_targeted(oz_data_file, target_list_file, rt_tol
     The target list should have columns containing the following information (in order, 1 header row is skipped):
     
     * lipid name in standard abbreviated format, with FA composition fully specified,
-      *e.g.*, PC(18:1_16:0) or TG(16:0/18:1/20:2)
+      *e.g.*, PC 18:1_16:0 or TG 16:0/18:1/20:2
     * MS adduct, *e.g.*, [M+H]+ or [M-2H]2-
     * target retention time
     * target double bond indices separated by "/" (*e.g.* "1/1/1/2")

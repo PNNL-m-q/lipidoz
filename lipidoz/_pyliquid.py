@@ -328,6 +328,22 @@ _LMAPS_CLASSIFICATION = {
                 'n_chains': 3,
                 'other_props': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
             },
+            'Alkyldiacylglycerols': {
+                'lm_id_prefix': 'LMGL0302',
+                'class_abbrev': 'TG',
+                'fa_mod': 'O-',
+                'formula' : {
+                    'C': lambda c: c + 3,
+                    'H': lambda c, u: 2 * (c + 2 - u),
+                    'N': 0,
+                    'O': 5,
+                    'S': 0,
+                    'P': 0,
+                },
+                'ionization' : 'pos',
+                'n_chains': 3,
+                'other_props': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            },
         },
         'Glycosyldiradylglycerols': {
             'Glycosyldiacylglycerols': [
