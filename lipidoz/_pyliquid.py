@@ -1122,6 +1122,40 @@ _LMAPS_CLASSIFICATION = {
                 'other_props': [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]
             },
         },
+        'Neutral GlycoSphingolipids': {
+            'Simple Glc Series (HexCer)': {
+                'lm_id_prefix': 'LMSP0501AA',
+                'class_abbrev': 'HexCer',
+                'fa_mod': 'd',
+                'formula' : {
+                    'C': lambda c: c + 6,
+                    'H': lambda c, u: 2 * c + 11 - 2 * u,
+                    'N': 1,
+                    'O': 8,
+                    'S': 0,
+                    'P': 0,
+                },
+                'ionization' : 'both',
+                'n_chains': 2,
+                'other_props': [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]
+            },
+            'Simple Glc Series (Hex2Cer)': {
+                'lm_id_prefix': 'LMSP0501AB',
+                'class_abbrev': 'Hex2Cer',
+                'fa_mod': 'd',
+                'formula' : {
+                    'C': lambda c: c + 12,
+                    'H': lambda c, u: 2 * c + 21 - 2 * u,
+                    'N': 1,
+                    'O': 13,
+                    'S': 0,
+                    'P': 0,
+                },
+                'ionization' : 'both',
+                'n_chains': 2,
+                'other_props': [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]
+            },
+        },
     },
     'Sterol Lipids': {
         'Sterols': {
